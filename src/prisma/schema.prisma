@@ -1,0 +1,381 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// MODEL-MODEL MASTER
+// =============================================================================
+
+model Workspace {
+  workspaceId   BigInt   @id @default(autoincrement()) @map("intWorkspace_ID")
+  workspaceName String   @map("txtWorkspaceName")
+  dtmInserted   DateTime @default(now()) @map("dtmInserted")
+  txtInsertedBy String?  @map("txtInsertedBy")
+  dtmUpdated    DateTime?@updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?  @map("txtUpdatedBy")
+  bitActive     Int?     @default(1) @map("bitActive")
+
+  // Relasi
+  boards          Board[]
+  workspaceMember trWorkspaceMember[]
+
+  @@map("mWorkspace")
+}
+
+model User {
+  userId        BigInt   @id @default(autoincrement()) @map("intUser_ID")
+  userName      String   @map("txtUserName")
+  email         String   @unique @map("txtEmail")
+  passwordHash  String   @map("txtPasswordHash")
+  dtmInserted   DateTime @default(now()) @map("dtmInserted")
+  txtInsertedBy String?  @map("txtInsertedBy")
+  dtmUpdated    DateTime?@updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?  @map("txtUpdatedBy")
+  bitActive     Int?     @default(1) @map("bitActive")
+
+  // Relasi
+  workspaceMember trWorkspaceMember[]
+  boardMember     trBoardMember[]
+  notifications   trNotification[]
+  activityLogs    logTaskActivity[]
+  taskUpdates     trTaskUpdate[]
+
+  @@map("mUser")
+}
+
+model Board {
+  boardId       BigInt   @id @default(autoincrement()) @map("intBoard_ID")
+  workspaceId   BigInt   @map("intWorkspace_ID")
+  boardName     String   @map("txtBoardName")
+  description   String?  @map("txtDescription")
+  dtmInserted   DateTime @default(now()) @map("dtmInserted")
+  txtInsertedBy String?  @map("txtInsertedBy")
+  dtmUpdated    DateTime?@updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?  @map("txtUpdatedBy")
+  bitActive     Int?     @default(1) @map("bitActive")
+
+  // Relasi
+  workspace     Workspace       @relation(fields: [workspaceId], references: [workspaceId])
+  groups        Group[]
+  columns       BoardColumn[]
+  boardMember   trBoardMember[]
+  integrations  trIntegration[]
+  widgets       DashboardWidget[]
+
+  @@map("mBoard")
+}
+
+model Group {
+  groupId       BigInt   @id @default(autoincrement()) @map("intGroup_ID")
+  boardId       BigInt   @map("intBoard_ID")
+  groupName     String   @map("txtGroupName")
+  groupColor    String?  @default("#579BFC") @map("txtGroupColor")
+  sortOrder     Int?     @default(0) @map("intSortOrder")
+  dtmInserted   DateTime @default(now()) @map("dtmInserted")
+  txtInsertedBy String?  @map("txtInsertedBy")
+  dtmUpdated    DateTime?@updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?  @map("txtUpdatedBy")
+  bitActive     Int?     @default(1) @map("bitActive")
+  bitCollapsed  Int?     @default(0) @map("bitCollapsed")
+
+  // Relasi
+  board Board @relation(fields: [boardId], references: [boardId], onDelete: Cascade)
+  items Task[]
+  
+  @@map("mGroup")
+}
+
+model DashboardWidget {
+  widgetId      BigInt    @id @default(autoincrement()) @map("intWidget_ID")
+  boardId       BigInt    @map("intBoard_ID")
+  title         String    @map("txtTitle")
+  chartType     String    @map("txtChartType")
+  groupByColumn String?   @map("txtGroupByColumn")
+  metricColumn  String?   @map("txtMetricColumn")
+  aggregation   String?   @default("count") @map("txtAggregation")
+  width         Int?      @default(6) @map("intWidth")
+  height        Int?      @default(400) @map("intHeight")
+  x             Int?      @default(0) @map("intX")
+  y             Int?      @default(0) @map("intY")
+  
+  dtmInserted   DateTime  @default(now()) @map("dtmInserted")
+  txtInsertedBy String?   @map("txtInsertedBy")
+  dtmUpdated    DateTime? @updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?   @map("txtUpdatedBy")
+  bitActive     Int?      @default(1) @map("bitActive")
+
+  board Board @relation(fields: [boardId], references: [boardId], onDelete: Cascade)
+
+  @@map("trDashboardWidget")
+}
+
+model BoardColumn {
+  columnId      BigInt     @id @default(autoincrement()) @map("intColumn_ID")
+  boardId       BigInt     @map("intBoard_ID")
+  columnName    String     @map("txtColumnName")
+  columnType    ColumnType @map("txtColumnType")
+
+  // Field spesifik pengaturan kolom
+  unit            String?  @map("txtUnit")
+  calculationType String?  @default("Sum") @map("txtCalculationType")
+  width           Int?     @default(200) @map("intWidth")
+
+  sortOrder     Int?       @default(0) @map("intSortOrder")
+  dtmInserted   DateTime   @default(now()) @map("dtmInserted")
+  txtInsertedBy String?    @map("txtInsertedBy")
+  dtmUpdated    DateTime?  @updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?    @map("txtUpdatedBy")
+  bitActive     Int?       @default(1) @map("bitActive")
+
+  // Relasi
+  board       Board       @relation(fields: [boardId], references: [boardId], onDelete: Cascade)
+  taskValues  trTaskValue[]
+  options     mColumnOption[]
+
+  watchedStatusColumns mColumnProgressLink[] @relation("ProgressColumn")
+  watchedByProgressColumns mColumnProgressLink[] @relation("StatusColumn")
+
+  @@map("mBoardColumn")
+}
+
+// =============================================================================
+// MODEL-MODEL TRANSAKSI
+// =============================================================================
+
+model trWorkspaceMember {
+  workspaceMemberId BigInt   @id @default(autoincrement()) @map("intWorkspaceMember_ID")
+  workspaceId       BigInt   @map("intWorkspace_ID")
+  userId            BigInt   @map("intUser_ID")
+  role              String   @map("txtRole")
+  dtmInserted       DateTime @default(now()) @map("dtmInserted")
+  txtInsertedBy     String?  @map("txtInsertedBy")
+  dtmUpdated        DateTime?@updatedAt @map("dtmUpdated")
+  txtUpdatedBy      String?  @map("txtUpdatedBy")
+  bitActive         Int?     @default(1) @map("bitActive")
+
+  // Relasi
+  workspace Workspace @relation(fields: [workspaceId], references: [workspaceId], onDelete: Cascade)
+  mUser     User      @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@map("trWorkspaceMember")
+}
+
+model trBoardMember {
+  boardMemberId BigInt   @id @default(autoincrement()) @map("intBoardMember_ID")
+  boardId       BigInt   @map("intBoard_ID")
+  userId        BigInt   @map("intUser_ID")
+  role          String   @map("txtRole")
+  dtmInserted   DateTime @default(now()) @map("dtmInserted")
+  txtInsertedBy String?  @map("txtInsertedBy")
+  dtmUpdated    DateTime?@updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?  @map("txtUpdatedBy")
+  bitActive     Int?     @default(1) @map("bitActive")
+
+  // Relasi
+  board Board @relation(fields: [boardId], references: [boardId], onDelete: Cascade)
+  mUser User  @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@unique([boardId, userId])
+  @@map("trBoardMember")
+}
+
+// -----------------------------------------------------------------------------
+// UPDATED TASK MODEL (SUPPORT SUBITEMS)
+// -----------------------------------------------------------------------------
+model Task {
+  taskId        BigInt      @id @default(autoincrement()) @map("intTask_ID")
+  groupId       BigInt      @map("intGroup_ID")
+  taskTitle     String      @map("txtTaskTitle")
+  sortOrder     Int?        @default(0) @map("intSortOrder")
+
+  // --- SUBITEM LOGIC ---
+  parentId      BigInt?     @map("intParentTask_ID") // Menyimpan ID parent jika ini adalah subitem
+  parent        Task?       @relation("SubTasks", fields: [parentId], references: [taskId], onDelete: Cascade)
+  subItems      Task[]      @relation("SubTasks")
+  // ---------------------
+
+  dtmInserted   DateTime    @default(now()) @map("dtmInserted")
+  txtInsertedBy String?     @map("txtInsertedBy")
+  dtmUpdated    DateTime?   @updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?     @map("txtUpdatedBy")
+  bitActive     Int?        @default(1) @map("bitActive")
+
+  // Relasi
+  group       Group         @relation(fields: [groupId], references: [groupId], onDelete: Cascade)
+  values      trTaskValue[]
+  activityLog logTaskActivity[]
+  updates     trTaskUpdate[]
+
+  @@map("trTask")
+}
+
+model trTaskValue {
+  taskValueId   BigInt    @id @default(autoincrement()) @map("intTaskValue_ID")
+  taskId        BigInt    @map("intTask_ID")
+  columnId      BigInt    @map("intColumn_ID")
+  value         String?   @map("txtValue") @db.Text
+  dtmInserted   DateTime  @default(now()) @map("dtmInserted")
+  txtInsertedBy String?   @map("txtInsertedBy")
+  dtmUpdated    DateTime? @updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?   @map("txtUpdatedBy")
+  bitActive     Int?      @default(1) @map("bitActive")
+
+  // Relasi
+  task   Task        @relation(fields: [taskId], references: [taskId], onDelete: Cascade)
+  column BoardColumn @relation(fields: [columnId], references: [columnId], onDelete: Cascade)
+
+  @@unique([taskId, columnId])
+  @@map("trTaskValue")
+}
+
+model trNotification {
+  notificationId BigInt    @id @default(autoincrement()) @map("intNotification_ID")
+  userId         BigInt    @map("intUser_ID")
+  message        String    @map("txtMessage")
+  link           String?   @map("txtLink")
+  isRead         Int?      @default(0) @map("bitIsRead")
+  dtmInserted    DateTime  @default(now()) @map("dtmInserted")
+  txtInsertedBy  String?   @map("txtInsertedBy")
+  dtmUpdated     DateTime? @updatedAt @map("dtmUpdated")
+  txtUpdatedBy   String?   @map("txtUpdatedBy")
+  bitActive      Int?      @default(1) @map("bitActive")
+
+  // Relasi
+  mUser User @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@map("trNotification")
+}
+
+model trIntegration {
+  integrationId BigInt    @id @default(autoincrement()) @map("intIntegration_ID")
+  boardId       BigInt    @map("intBoard_ID")
+  service       String    @map("txtService")
+  configJson    String?   @map("txtConfigJson")
+  dtmInserted   DateTime  @default(now()) @map("dtmInserted")
+  txtInsertedBy String?   @map("txtInsertedBy")
+  dtmUpdated    DateTime? @updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?   @map("txtUpdatedBy")
+  bitActive     Int?      @default(1) @map("bitActive")
+
+  // Relasi
+  board Board @relation(fields: [boardId], references: [boardId], onDelete: Cascade)
+
+  @@map("trIntegration")
+}
+
+model trTaskUpdate {
+  updateId      BigInt    @id @default(autoincrement()) @map("intUpdate_ID")
+  taskId        BigInt    @map("intTask_ID")
+  userId        BigInt    @map("intUser_ID")
+  updateText    String    @map("txtUpdateText") @db.Text
+  dtmInserted   DateTime  @default(now()) @map("dtmInserted")
+  txtInsertedBy String?   @map("txtInsertedBy")
+  dtmUpdated    DateTime? @updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?   @map("txtUpdatedBy")
+  bitActive     Int?      @default(1) @map("bitActive")
+
+  // Relasi
+  task Task @relation(fields: [taskId], references: [taskId], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@map("trTaskUpdate")
+}
+
+// =============================================================================
+// MODEL-MODEL LOG
+// =============================================================================
+
+model logTaskActivity {
+  logId         BigInt    @id @default(autoincrement()) @map("intLog_ID")
+  taskId        BigInt    @map("intTask_ID")
+  userId        BigInt    @map("intUser_ID")
+  actionType    String    @map("txtActionType")
+  oldValue      String?   @map("txtOldValue")
+  newValue      String?   @map("txtNewValue")
+  description   String?   @map("txtDescription")
+  dtmInserted   DateTime  @default(now()) @map("dtmInserted")
+  txtInsertedBy String?   @map("txtInsertedBy")
+  dtmUpdated    DateTime? @updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?   @map("txtUpdatedBy")
+  bitActive     Int?      @default(1) @map("bitActive")
+
+  // Relasi
+  task  Task @relation(fields: [taskId], references: [taskId], onDelete: Cascade)
+  mUser User @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@map("logTaskActivity")
+}
+
+// =============================================================================
+// MODEL PENDUKUNG FITUR
+// =============================================================================
+
+model mColumnOption {
+  optionId      BigInt    @id @default(autoincrement()) @map("intOption_ID")
+  columnId      BigInt    @map("intColumn_ID")
+  label         String    @map("txtLabel")
+  color         String    @map("txtColor")
+  sortOrder     Int?      @default(0) @map("intSortOrder")
+  dtmInserted   DateTime  @default(now()) @map("dtmInserted")
+  txtInsertedBy String?   @map("txtInsertedBy")
+  dtmUpdated    DateTime? @updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?   @map("txtUpdatedBy")
+  bitActive     Int?      @default(1) @map("bitActive")
+
+  // Relasi
+  column BoardColumn @relation(fields: [columnId], references: [columnId], onDelete: Cascade)
+
+  @@map("mColumnOption")
+}
+
+model mColumnProgressLink {
+  id                BigInt @id @default(autoincrement())
+  progressColumnId  BigInt @map("intProgressColumn_ID")
+  statusColumnId    BigInt @map("intStatusColumn_ID")
+  weight            Int?   @default(0) @map("intWeight")
+
+  // Relasi
+  progressColumn BoardColumn @relation("ProgressColumn", fields: [progressColumnId], references: [columnId], onDelete: Cascade)
+  statusColumn   BoardColumn @relation("StatusColumn", fields: [statusColumnId], references: [columnId], onDelete: Cascade)
+
+  @@unique([progressColumnId, statusColumnId])
+  @@map("trColumnProgressLink")
+}
+
+// =============================================================================
+// ENUM
+// =============================================================================
+enum ColumnType {
+  TEXT
+  PERSON
+  STATUS
+  DATE
+  NUMBER
+  CHECKBOX
+  FILES
+  LINK
+  TAGS
+  PROGRESS
+  DROPDOWN
+  TIMELINE
+  FORMULA
+  CONNECT
+  DOC
+}
+
+model BoardTemplate {
+  templateId    Int      @id @default(autoincrement())
+  templateName  String
+  description   String?
+  // field ini menyimpan Array kolom: [{ name: "Status", type: "STATUS", order: 1, ... }, ...]
+  structure     Json
+  createdAt     DateTime @default(now())
+}
