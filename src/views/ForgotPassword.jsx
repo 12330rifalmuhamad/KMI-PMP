@@ -15,7 +15,6 @@ import classnames from 'classnames'
 
 // Component Imports
 import DirectionalIcon from '@components/DirectionalIcon'
-import Logo from '@components/layout/shared/Logo'
 import CustomTextField from '@core/components/mui/TextField'
 
 // Hook Imports
@@ -24,6 +23,9 @@ import { useSettings } from '@core/hooks/useSettings'
 
 // Util Imports
 import { getLocalizedUrl } from '@/utils/i18n'
+
+const logoPath = '/images/logo-KMI.png'
+const logoWidth = 180
 
 // Styled Custom Components
 const ForgotPasswordIllustration = styled('img')(({ theme }) => ({
@@ -82,7 +84,7 @@ const ForgotPassword = ({ mode }) => {
           href={getLocalizedUrl('/login', locale)}
           className='absolute block-start-5 sm:block-start-[33px] inline-start-6 sm:inline-start-[38px]'
         >
-          <Logo />
+          <img src={logoPath} alt='Logo' style={{ width: `${logoWidth}px` }} />
         </Link>
         <div className='flex flex-col gap-6 is-full sm:is-auto md:is-full sm:max-is-[400px] md:max-is-[unset] mbs-8 sm:mbs-11 md:mbs-0'>
           <div className='flex flex-col gap-1'>

@@ -7,6 +7,12 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route'
 
 const prisma = new PrismaClient()
 
+const priorityOptions = [
+  { label: 'Tinggi', color: 'bg-purple-500/10' },
+  { label: 'Sedang', color: 'bg-sky-500/10' },
+  { label: 'Rendah', color: 'bg-green-500/10' }
+]
+
 // Fix BigInt serialization
 BigInt.prototype.toJSON = function () {
   return this.toString()
@@ -121,7 +127,7 @@ export async function POST(request) {
         { columnName: 'Person', columnType: 'PERSON', sortOrder: 2 },
         { columnName: 'Status', columnType: 'STATUS', sortOrder: 3 },
         { columnName: 'Date', columnType: 'DATE', sortOrder: 4 },
-        { columnName: 'Priority', columnType: 'STATUS', sortOrder: 5 }
+        { columnName: 'Priority', columnType: 'STATUS', sortOrder: 5, options: priorityOptions }
       ]
     }
 

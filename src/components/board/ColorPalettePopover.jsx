@@ -13,7 +13,7 @@ const colorPalette = [
   'bg-indigo-500',
   'bg-gray-500',
   'bg-purple-500/10', // Prioritas Tinggi
-  'bg-sky-500/10', // Prioritas Medium
+  'bg-sky-500/10', // Prioritas Sedang
   'bg-green-500/10', // Prioritas Rendah
   'bg-gray-400'
 ]

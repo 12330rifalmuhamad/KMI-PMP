@@ -23,6 +23,14 @@
   } from '@dnd-kit/sortable'
   import { CSS } from '@dnd-kit/utilities'
 
+  const PRIORITY_LABELS = [
+    { label: 'Tinggi', color: 'bg-purple-500/10', text: 'text-purple-400' },
+    { label: 'Sedang', color: 'bg-sky-500/10', text: 'text-sky-400' },
+    { label: 'Rendah', color: 'bg-green-500/10', text: 'text-green-400' }
+  ]
+
+  const isPriorityColumn = columnName => ['prioritas', 'priority'].includes(String(columnName || '').toLowerCase())
+
   // Sortable Row Component
   const SortableRow = ({ item, isSelected, children, ...props }) => {
     const {
@@ -136,7 +144,7 @@
   }
 
   const findUserById = (userId, board) =>
-    (board?.boardMember || []).find(m => m.userId === parseInt(userId ?? '', 10))?.mUser
+    (board?.boardMember || []).find(m => normalizeId(m.userId) === normalizeId(userId))?.mUser
 
   const formatTimelineDate = dateStr => {
     if (!dateStr) return ''
@@ -174,6 +182,8 @@
   // CELL COMPONENT DEFINITIONS
   // =================================================================
 
+  const getUserDisplayName = user => user?.userName || user?.email || 'User'
+
   const PersonAvatar = ({ user }) => {
     if (!user) {
       return (
@@ -183,12 +193,21 @@
       )
     }
 
+    const displayName = getUserDisplayName(user)
+
     return (
-      <MuiAvatar sx={{ width: 28, height: 28, fontSize: '0.875rem' }} title={user.userName}>
-        {user.userName.charAt(0).toUpperCase()}
+      <MuiAvatar sx={{ width: 28, height: 28, fontSize: '0.875rem' }} title={displayName}>
+        {displayName.charAt(0).toUpperCase()}
       </MuiAvatar>
     )
   }
+
+  const PersonCell = ({ user }) => (
+    <div className='flex items-center justify-center gap-2 w-full h-full min-w-0 px-2'>
+      <PersonAvatar user={user} />
+      {user && <span className='text-sm text-textPrimary truncate'>{getUserDisplayName(user)}</span>}
+    </div>
+  )
 
   const TimelineCell = ({ value, column }) => {
     if (!value) return <div className='w-full h-2 bg-gray-200 rounded-full mx-2 opacity-50'></div>
@@ -217,20 +236,14 @@
 
   const StatusCell = ({ value, column }) => {
     const options = useMemo(() => {
+      if (isPriorityColumn(column.columnName)) return PRIORITY_LABELS
+
       if (column.options?.length > 0) {
         return column.options.map(opt => ({
           label: opt.label,
           color: opt.color,
           text: opt.color.includes('/10') || opt.color.includes('gray') ? 'text-gray-300' : 'text-white'
         }))
-      }
-
-      if (column.columnName.toLowerCase() === 'prioritas') {
-        return [
-          { label: 'Tinggi', color: 'bg-purple-500/10', text: 'text-purple-400' },
-          { label: 'Medium', color: 'bg-sky-500/10', text: 'text-sky-400' },
-          { label: 'Rendah', color: 'bg-green-500/10', text: 'text-green-400' }
-        ]
       }
 
       return [
@@ -244,13 +257,13 @@
     const option = options.find(opt => opt.label === value)
     const displayText = value || ''
 
-    if (column.columnName.toLowerCase() === 'prioritas') {
+    if (isPriorityColumn(column.columnName)) {
       const colors = option ? `${option.color} ${option.text}` : 'text-gray-400 border border-gray-600'
       const borderClass = option && option.color.includes('/10') ? `border border-${option.color.split('-')[1]}-800` : ''
 
       return (
         <div
-          className={`flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-medium ${colors} ${borderClass}`}
+          className={`flex items-center justify-center w-full h-full text-xs font-bold ${colors} ${borderClass}`}
         >
           {displayText}
         </div>
@@ -460,8 +473,8 @@
     switch (column.columnType) {
       case 'PERSON':
         return (
-          <div className='flex justify-center w-full' onClick={handleClick}>
-            <PersonAvatar user={cellValue ? findUserById(cellValue.value, board) : null} />
+          <div className='w-full h-full cursor-pointer' onClick={handleClick}>
+            <PersonCell user={cellValue ? findUserById(cellValue.value, board) : null} />
           </div>
         )
       case 'STATUS':
@@ -1098,12 +1111,9 @@
     const [editingLabelId, setEditingLabelId] = useState(null)
 
     const initialOptions = useMemo(() => {
-      if (column.columnName.toLowerCase() === 'prioritas')
-        return [
-          { id: 'p1', label: 'Tinggi', color: 'bg-purple-500/10', text: 'text-purple-400' },
-          { id: 'p2', label: 'Medium', color: 'bg-sky-500/10', text: 'text-sky-400' },
-          { id: 'p3', label: 'Rendah', color: 'bg-green-500/10', text: 'text-green-400' }
-        ]
+      if (isPriorityColumn(column.columnName)) {
+        return PRIORITY_LABELS.map((option, index) => ({ ...option, id: `p${index + 1}` }))
+      }
 
       return column.options?.length
         ? column.options.map(opt => ({ ...opt, id: opt.optionId.toString(), text: 'text-white' }))
@@ -1281,11 +1291,9 @@
               {labels.map(option => (
                 <Button
                   key={option.id}
-                  variant={column.columnName.toLowerCase() === 'prioritas' ? 'outlined' : 'contained'}
+                  variant={isPriorityColumn(column.columnName) ? 'outlined' : 'contained'}
                   className={`!font-semibold !justify-start !shadow-none ${option.color} ${option.text}`}
-                  style={
-                    column.columnName.toLowerCase() === 'prioritas' ? { borderColor: option.color.split(' ')[1] } : {}
-                  }
+                  style={isPriorityColumn(column.columnName) ? { borderColor: option.color.split(' ')[1] } : {}}
                   onClick={() => {
                     onValueSelect(option.label)
                     onClose()
@@ -1317,7 +1325,7 @@
                     onClose()
                   }}
                 >
-                  <ListItemText primary={member.mUser.userName} />
+                  <ListItemText primary={member.mUser?.userName || member.mUser?.email || 'Unknown user'} />
                 </ListItemButton>
               ))}
             </List>
@@ -3204,8 +3212,8 @@
                             switch (column.columnType) {
                               case 'PERSON':
                                 cellContent = (
-                                  <div className='flex justify-center'>
-                                    <PersonAvatar user={cellValue ? findUserById(cellValue.value, board) : null} />
+                                  <div className='flex items-center justify-center w-full h-full cursor-pointer'>
+                                    <PersonCell user={cellValue ? findUserById(cellValue.value, board) : null} />
                                   </div>
                                 )
                                 break

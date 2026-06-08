@@ -11,6 +11,12 @@ BigInt.prototype.toJSON = function () {
 
 const prisma = new PrismaClient()
 
+const priorityOptions = [
+  { label: 'Tinggi', color: 'bg-purple-500/10' },
+  { label: 'Sedang', color: 'bg-sky-500/10' },
+  { label: 'Rendah', color: 'bg-green-500/10' }
+]
+
 // FUNGSI GET: Untuk mengambil semua board dalam satu workspace
 export async function GET(request, { params }) {
   const { workspaceId } = await params
@@ -144,7 +150,19 @@ export async function POST(request, { params }) {
             { columnName: 'Pemilik', columnType: 'PERSON', sortOrder: 2, txtInsertedBy: session.user.name },
             { columnName: 'Status', columnType: 'STATUS', sortOrder: 3, txtInsertedBy: session.user.name },
             { columnName: 'Tanggal Selesai', columnType: 'DATE', sortOrder: 4, txtInsertedBy: session.user.name },
-            { columnName: 'Prioritas', columnType: 'STATUS', sortOrder: 5, txtInsertedBy: session.user.name }
+            {
+              columnName: 'Prioritas',
+              columnType: 'STATUS',
+              sortOrder: 5,
+              txtInsertedBy: session.user.name,
+              options: {
+                create: priorityOptions.map((option, index) => ({
+                  ...option,
+                  sortOrder: index + 1,
+                  txtInsertedBy: session.user.name
+                }))
+              }
+            }
           ]
         },
         groups: {

@@ -16,6 +16,14 @@ const prisma = global.prisma || new PrismaClient()
 
 if (process.env.NODE_ENV !== 'production') global.prisma = prisma
 
+const priorityOptions = [
+  { label: 'Tinggi', color: 'bg-purple-500/10' },
+  { label: 'Sedang', color: 'bg-sky-500/10' },
+  { label: 'Rendah', color: 'bg-green-500/10' }
+]
+
+const isPriorityColumn = columnName => ['prioritas', 'priority'].includes(String(columnName || '').toLowerCase())
+
 export async function POST(request, { params }) {
   const session = await getServerSession(authOptions)
 
@@ -76,7 +84,18 @@ export async function POST(request, { params }) {
         columnName: txtColumnName,
         columnType: txtColumnType,
         sortOrder: nextSortOrder,
-        txtInsertedBy: session.user.name
+        txtInsertedBy: session.user.name,
+        ...(txtColumnType === 'STATUS' && isPriorityColumn(txtColumnName)
+          ? {
+              options: {
+                create: priorityOptions.map((option, index) => ({
+                  ...option,
+                  sortOrder: index + 1,
+                  txtInsertedBy: session.user.name
+                }))
+              }
+            }
+          : {})
       }
     })
 

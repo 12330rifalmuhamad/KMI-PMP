@@ -31,7 +31,7 @@ export const ValueEditorPopover = ({ anchorEl, onClose, column, board, onValueSe
 
   const [priorityOptions, setPriorityOptions] = useState([
     { id: 1, label: 'Tinggi', color: 'bg-purple-500/10', text: 'text-purple-400' },
-    { id: 2, label: 'Medium', color: 'bg-sky-500/10', text: 'text-sky-400' },
+    { id: 2, label: 'Sedang', color: 'bg-sky-500/10', text: 'text-sky-400' },
     { id: 3, label: 'Rendah', color: 'bg-green-500/10', text: 'text-green-400' }
   ])
 
@@ -80,7 +80,7 @@ export const ValueEditorPopover = ({ anchorEl, onClose, column, board, onValueSe
 
       // PERBAIKAN 2: Meng-upgrade editor STATUS
       case 'STATUS':
-        const isPriority = column.columnName.toLowerCase() === 'prioritas'
+        const isPriority = ['prioritas', 'priority'].includes(String(column.columnName || '').toLowerCase())
         const options = isPriority ? priorityOptions : statusOptions
 
         if (isEditingLabels) {
@@ -155,7 +155,7 @@ export const ValueEditorPopover = ({ anchorEl, onClose, column, board, onValueSe
       case 'PERSON':
         return (
           <List>
-            {board.boardMember.map(member => (
+            {(board?.boardMember || []).map(member => (
               <ListItemButton
                 key={member.userId}
                 onClick={() => {
@@ -163,7 +163,7 @@ export const ValueEditorPopover = ({ anchorEl, onClose, column, board, onValueSe
                   onClose()
                 }}
               >
-                <ListItemText primary={member.mUser.userName} />
+                <ListItemText primary={member.mUser?.userName || member.mUser?.email || 'Unknown user'} />
               </ListItemButton>
             ))}
           </List>
