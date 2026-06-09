@@ -56,9 +56,16 @@ export const authOptions = {
     strategy: 'jwt'
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id
+        token.name = user.name
+        token.email = user.email
+      }
+
+      if (trigger === 'update' && session) {
+        if (session.name) token.name = session.name
+        if (session.email) token.email = session.email
       }
 
       return token
@@ -66,6 +73,8 @@ export const authOptions = {
     async session({ session, token }) {
       if (token) {
         session.user.id = token.id
+        session.user.name = token.name
+        session.user.email = token.email
       }
 
       return session

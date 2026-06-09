@@ -1,8 +1,6 @@
 'use client'
 
-import { useState } from 'react'
-
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 
 import { useSession } from 'next-auth/react'
 
@@ -35,10 +33,8 @@ import CustomTextField from '@core/components/mui/TextField'
 
 const UserProfilePage = () => {
   const { data: session, update } = useSession()
-  const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' })
-  const [profileImage, setProfileImage] = useState(session?.user?.image || '')
   const [activeTab, setActiveTab] = useState('personal-info')
 
   const handleTabChange = (event, newValue) => {
@@ -49,22 +45,20 @@ const UserProfilePage = () => {
   const {
     control,
     handleSubmit,
-    formState: { errors },
     reset
   } = useForm({
     defaultValues: {
       name: session?.user?.name || '',
-      email: session?.user?.email || '',
-      phone: '',
-      bio: '',
-      company: '',
-      website: '',
-      location: '',
-      jobTitle: '',
-      birthday: '',
-      workAnniversary: ''
+      email: session?.user?.email || ''
     }
   })
+
+  useEffect(() => {
+    reset({
+      name: session?.user?.name || '',
+      email: session?.user?.email || ''
+    })
+  }, [session?.user?.email, session?.user?.name, reset])
 
   // Handle form submission
   const onSubmit = async data => {
@@ -76,17 +70,14 @@ const UserProfilePage = () => {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          ...data,
-          image: profileImage
-        })
+        body: JSON.stringify(data)
       })
 
-      if (!response.ok) {
-        throw new Error('Failed to update profile')
-      }
-
       const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to update profile')
+      }
 
       setSnackbar({
         open: true,
@@ -96,34 +87,22 @@ const UserProfilePage = () => {
 
       // Update session if needed
       await update({
-        ...session,
-        user: {
-          ...session.user,
-          name: data.name,
-          email: data.email,
-          image: profileImage
-        }
+        name: result.user.name,
+        email: result.user.email
+      })
+
+      reset({
+        name: result.user.name,
+        email: result.user.email
       })
     } catch (error) {
       setSnackbar({
         open: true,
-        message: 'Failed to update profile. Please try again.',
+        message: error.message || 'Failed to update profile. Please try again.',
         severity: 'error'
       })
     } finally {
       setLoading(false)
-    }
-  }
-
-  // Handle profile image change
-  const handleImageChange = event => {
-    const file = event.target.files[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onload = e => {
-        setProfileImage(e.target.result)
-      }
-      reader.readAsDataURL(file)
     }
   }
 
@@ -138,6 +117,18 @@ const UserProfilePage = () => {
     const confirmPassword = formData.get('confirmPassword')
 
     try {
+      if (!currentPassword || !newPassword || !confirmPassword) {
+        throw new Error('All password fields are required')
+      }
+
+      if (newPassword.length < 6) {
+        throw new Error('New password must be at least 6 characters long')
+      }
+
+      if (newPassword !== confirmPassword) {
+        throw new Error('New password and confirm password must match')
+      }
+
       const response = await fetch('/api/user/change-password', {
         method: 'POST',
         headers: {
@@ -195,30 +186,13 @@ const UserProfilePage = () => {
                     <Grid item xs={12} md={5} lg={4}>
                       <Card>
                         <CardContent className='flex flex-col items-center gap-4'>
-                            <Avatar
-                              src={profileImage}
-                              alt={session?.user?.name || 'User'}
-                              variant='rounded'
-                              className='w-[100px] h-[100px]'
-                            />
+                            <Avatar alt={session?.user?.name || 'User'} variant='rounded' className='w-[100px] h-[100px]'>
+                              {(session?.user?.name || 'U').charAt(0).toUpperCase()}
+                            </Avatar>
                             <div className='flex flex-col gap-2 items-center text-center'>
                                 <Typography variant='h5'>{session?.user?.name || 'User'}</Typography>
+                                <Typography variant='body2' color='text.secondary'>{session?.user?.email}</Typography>
                                 <Chip label='Member' size='small' color='secondary' className='rounded-sm' />
-                            </div>
-                            
-                            <div className='flex gap-2 justify-center w-full'>
-                                <Button component='label' variant='contained' color='success'>
-                                    Upload Photo
-                                    <input
-                                      hidden
-                                      type='file'
-                                      accept='image/*'
-                                      onChange={handleImageChange}
-                                    />
-                                </Button>
-                                <Button variant='tonal' color='secondary' onClick={() => setProfileImage('')}>
-                                    Reset
-                                </Button>
                             </div>
                         </CardContent>
                       </Card>
@@ -248,42 +222,6 @@ const UserProfilePage = () => {
                                                 )}
                                             />
                                         </Grid>
-                                        <Grid item xs={12} sm={6}>
-                                            <Controller
-                                                name='company'
-                                                control={control}
-                                                render={({ field }) => (
-                                                <CustomTextField fullWidth label='Company' placeholder='Pixinvent' {...field} />
-                                                )}
-                                            />
-                                        </Grid>
-                                        <Grid item xs={12} sm={6}>
-                                            <Controller
-                                                name='jobTitle'
-                                                control={control}
-                                                render={({ field }) => (
-                                                <CustomTextField fullWidth label='Job Title' placeholder='Product Manager' {...field} />
-                                                )}
-                                            />
-                                        </Grid>
-                                        <Grid item xs={12} sm={6}>
-                                            <Controller
-                                                name='phone'
-                                                control={control}
-                                                render={({ field }) => (
-                                                <CustomTextField fullWidth label='Phone Number' placeholder='+1 (234) 567-8901' {...field} />
-                                                )}
-                                            />
-                                        </Grid>
-                                        <Grid item xs={12} sm={6}>
-                                            <Controller
-                                                name='location'
-                                                control={control}
-                                                render={({ field }) => (
-                                                <CustomTextField fullWidth label='Location' placeholder='New York, NY' {...field} />
-                                                )}
-                                            />
-                                        </Grid>
                                         
                                         <Grid item xs={12} className='flex gap-4'>
                                             <Button variant='contained' type='submit' disabled={loading} color='success'>
@@ -304,12 +242,13 @@ const UserProfilePage = () => {
                         <CardContent>
                              <form onSubmit={handlePasswordChange}>
                                 <Grid container spacing={5}>
-                                    <Grid item xs={12} sm={6}>
+                                    <Grid item xs={12} sm={12}>
                                         <CustomTextField
                                             fullWidth
                                             name='currentPassword'
                                             label='Current Password'
                                             type='password'
+                                            required
                                             placeholder='············'
                                             InputProps={{
                                                 startAdornment: (
@@ -326,6 +265,8 @@ const UserProfilePage = () => {
                                             name='newPassword'
                                             label='New Password'
                                             type='password'
+                                            required
+                                            inputProps={{ minLength: 6 }}
                                             placeholder='············'
                                             InputProps={{
                                                 startAdornment: (
@@ -342,6 +283,8 @@ const UserProfilePage = () => {
                                             name='confirmPassword'
                                             label='Confirm New Password'
                                             type='password'
+                                            required
+                                            inputProps={{ minLength: 6 }}
                                             placeholder='············'
                                             InputProps={{
                                                 startAdornment: (

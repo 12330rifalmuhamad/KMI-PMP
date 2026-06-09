@@ -1,6 +1,17 @@
 import { NextResponse } from 'next/server'
+
 import { getServerSession } from 'next-auth'
+import { PrismaClient } from '@prisma/client'
+
 import { authOptions } from '@/app/api/auth/[...nextauth]/route'
+
+BigInt.prototype.toJSON = function () {
+  return this.toString()
+}
+
+const prisma = global.prisma || new PrismaClient()
+
+if (process.env.NODE_ENV !== 'production') global.prisma = prisma
 
 export async function GET(request) {
   const session = await getServerSession(authOptions)
@@ -10,22 +21,23 @@ export async function GET(request) {
   }
 
   try {
-    // Return user profile data
+    const user = await prisma.user.findUnique({
+      where: { userId: BigInt(session.user.id) },
+      select: { userId: true, userName: true, email: true }
+    })
+
+    if (!user) return NextResponse.json({ message: 'User not found' }, { status: 404 })
+
     return NextResponse.json({
       user: {
-        id: session.user.id,
-        name: session.user.name,
-        email: session.user.email,
-        image: session.user.image,
-        phone: session.user.phone || '',
-        bio: session.user.bio || '',
-        company: session.user.company || '',
-        website: session.user.website || '',
-        location: session.user.location || ''
+        id: user.userId,
+        name: user.userName,
+        email: user.email
       }
     })
   } catch (error) {
     console.error('Failed to fetch user profile:', error)
+
     return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 })
   }
 }
@@ -39,42 +51,47 @@ export async function PUT(request) {
 
   try {
     const body = await request.json()
-    const { name, email, phone, bio, company, website, location, image } = body
+    const name = body?.name?.trim()
+    const email = body?.email?.trim().toLowerCase()
 
-    // Here you would typically update the user profile in your database
-    // For now, we'll just return the updated data
-
-    const updatedProfile = {
-      id: session.user.id,
-      name: name || session.user.name,
-      email: email || session.user.email,
-      image: image || session.user.image,
-      phone: phone || '',
-      bio: bio || '',
-      company: company || '',
-      website: website || '',
-      location: location || ''
+    if (!name || !email) {
+      return NextResponse.json({ message: 'Name and email are required' }, { status: 400 })
     }
 
-    // In a real application, you would:
-    // 1. Validate the data
-    // 2. Update the database
-    // 3. Return the updated profile
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+    if (!emailRegex.test(email)) {
+      return NextResponse.json({ message: 'Please enter a valid email address' }, { status: 400 })
+    }
+
+    const currentUserId = BigInt(session.user.id)
+    const existingEmailUser = await prisma.user.findUnique({ where: { email }, select: { userId: true } })
+
+    if (existingEmailUser && existingEmailUser.userId !== currentUserId) {
+      return NextResponse.json({ message: 'Email is already used by another account' }, { status: 409 })
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { userId: currentUserId },
+      data: {
+        userName: name,
+        email,
+        txtUpdatedBy: name
+      },
+      select: { userId: true, userName: true, email: true }
+    })
 
     return NextResponse.json({
       message: 'Profile updated successfully',
-      user: updatedProfile
+      user: {
+        id: updatedUser.userId,
+        name: updatedUser.userName,
+        email: updatedUser.email
+      }
     })
   } catch (error) {
     console.error('Failed to update user profile:', error)
+
     return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 })
   }
 }
-
-
-
-
-
-
-
-

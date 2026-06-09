@@ -1,6 +1,18 @@
 import { NextResponse } from 'next/server'
+
 import { getServerSession } from 'next-auth'
+import { PrismaClient } from '@prisma/client'
+import bcrypt from 'bcryptjs'
+
 import { authOptions } from '@/app/api/auth/[...nextauth]/route'
+
+BigInt.prototype.toJSON = function () {
+  return this.toString()
+}
+
+const prisma = global.prisma || new PrismaClient()
+
+if (process.env.NODE_ENV !== 'production') global.prisma = prisma
 
 export async function POST(request) {
   const session = await getServerSession(authOptions)
@@ -13,7 +25,6 @@ export async function POST(request) {
     const body = await request.json()
     const { currentPassword, newPassword, confirmPassword } = body
 
-    // Validate input
     if (!currentPassword || !newPassword || !confirmPassword) {
       return NextResponse.json(
         {
@@ -32,36 +43,47 @@ export async function POST(request) {
       )
     }
 
-    if (newPassword.length < 8) {
+    if (newPassword.length < 6) {
       return NextResponse.json(
         {
-          message: 'New password must be at least 8 characters long'
+          message: 'New password must be at least 6 characters long'
         },
         { status: 400 }
       )
     }
 
-    // Here you would typically:
-    // 1. Verify the current password
-    // 2. Hash the new password
-    // 3. Update the password in the database
+    const user = await prisma.user.findUnique({
+      where: { userId: BigInt(session.user.id) },
+      select: { userId: true, userName: true, passwordHash: true }
+    })
 
-    // For now, we'll just simulate the process
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    if (!user) {
+      return NextResponse.json({ message: 'User not found' }, { status: 404 })
+    }
+
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.passwordHash)
+
+    if (!isCurrentPasswordValid) {
+      return NextResponse.json({ message: 'Current password is incorrect' }, { status: 400 })
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10)
+
+    await prisma.user.update({
+      where: { userId: user.userId },
+      data: {
+        passwordHash,
+        txtUpdatedBy: user.userName
+      }
+    })
 
     return NextResponse.json({
       message: 'Password changed successfully'
     })
   } catch (error) {
     console.error('Failed to change password:', error)
+
     return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 })
   }
 }
-
-
-
-
-
-
-
 
