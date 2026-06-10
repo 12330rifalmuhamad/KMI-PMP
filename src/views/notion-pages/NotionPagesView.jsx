@@ -691,7 +691,7 @@ const BlockEditor = ({
       )
     }
 
-    return textarea(blockType.startsWith('heading') ? 'Heading' : "Press 'space' for AI or '/' for commands")
+    return textarea(blockType.startsWith('heading') ? 'Heading' : "Type here")
   }
 
   return (
@@ -743,6 +743,15 @@ export default function NotionPagesView({ pageId }) {
   } = useSWR(pageId ? `/api/notion-pages/${pageId}` : null, fetcher)
 
   const comments = page?.comments || []
+
+  const pageActionButtonStyle = {
+    background: 'transparent',
+    border: 'none',
+    padding: 0,
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    boxShadow: 'none'
+  }
 
   useEffect(() => {
     if (!page) return
@@ -1228,25 +1237,25 @@ export default function NotionPagesView({ pageId }) {
           )}
 
           <main className={`mx-auto max-w-[980px] px-4 pb-32 md:px-10 ${page.pageCoverUrl ? 'pt-0' : 'pt-8'}`}>
-            {(!page.pageIcon || !page.pageCoverUrl || !showComments) && (
+            {!page.pageIcon && (
               <div
                 className={`mb-5 flex flex-wrap gap-4 text-sm ${page.pageCoverUrl ? 'mt-5' : ''}`}
                 style={{ color: theme.palette.text.secondary }}
               >
-                {!page.pageIcon && (
-                  <button
-                    type='button'
-                    className='flex items-center gap-2 hover:text-white'
-                    onClick={event => setEmojiAnchor(event.currentTarget)}
-                  >
-                    <i className='tabler-mood-smile text-lg' />
-                    Add icon
-                  </button>
-                )}
+                <button
+                  type='button'
+                  className='inline-flex items-center gap-2 bg-transparent p-0 hover:bg-transparent hover:text-white focus:bg-transparent active:bg-transparent'
+                  style={pageActionButtonStyle}
+                  onClick={event => setEmojiAnchor(event.currentTarget)}
+                >
+                  <i className='tabler-mood-smile text-lg' />
+                  Add icon
+                </button>
                 {!page.pageCoverUrl && (
                   <button
                     type='button'
-                    className='flex items-center gap-2 hover:text-white'
+                    className='inline-flex items-center gap-2 bg-transparent p-0 hover:bg-transparent hover:text-white focus:bg-transparent active:bg-transparent'
+                    style={pageActionButtonStyle}
                     onClick={() => coverInputRef.current?.click()}
                   >
                     <i className='tabler-photo text-lg' />
@@ -1256,7 +1265,8 @@ export default function NotionPagesView({ pageId }) {
                 {!showComments && (
                   <button
                     type='button'
-                    className='flex items-center gap-2 hover:text-white'
+                    className='inline-flex items-center gap-2 bg-transparent p-0 hover:bg-transparent hover:text-white focus:bg-transparent active:bg-transparent'
+                    style={pageActionButtonStyle}
                     onClick={() => setShowComments(true)}
                   >
                     <i className='tabler-message text-lg' />
@@ -1267,22 +1277,46 @@ export default function NotionPagesView({ pageId }) {
             )}
 
             {page.pageIcon && (
-              <button
-                type='button'
-                className={`relative z-10 inline-flex border-0 bg-transparent p-0 text-7xl leading-none shadow-none hover:bg-transparent focus:bg-transparent active:bg-transparent ${
-                  page.pageCoverUrl ? '-mt-16 mb-8' : 'mb-4'
-                }`}
-                style={{
-                  appearance: 'none',
-                  WebkitAppearance: 'none',
-                  background: 'transparent',
-                  boxShadow: 'none',
-                  outline: 'none'
-                }}
-                onClick={event => setEmojiAnchor(event.currentTarget)}
-              >
-                {page.pageIcon}
-              </button>
+              <div className={page.pageCoverUrl ? '-mt-12 mb-6' : 'mb-4'}>
+                <button
+                  type='button'
+                  className='relative z-10 inline-flex bg-transparent p-0 text-7xl leading-none shadow-none hover:bg-transparent focus:bg-transparent active:bg-transparent'
+                  style={{
+                    ...pageActionButtonStyle,
+                    outline: 'none'
+                  }}
+                  onClick={event => setEmojiAnchor(event.currentTarget)}
+                >
+                  {page.pageIcon}
+                </button>
+
+                {(!page.pageCoverUrl || !showComments) && (
+                  <div className='mt-4 flex flex-wrap gap-4 text-sm' style={{ color: theme.palette.text.secondary }}>
+                    {!page.pageCoverUrl && (
+                      <button
+                        type='button'
+                        className='inline-flex items-center gap-2 bg-transparent p-0 hover:bg-transparent hover:text-white focus:bg-transparent active:bg-transparent'
+                        style={pageActionButtonStyle}
+                        onClick={() => coverInputRef.current?.click()}
+                      >
+                        <i className='tabler-photo text-lg' />
+                        Add cover
+                      </button>
+                    )}
+                    {!showComments && (
+                      <button
+                        type='button'
+                        className='inline-flex items-center gap-2 bg-transparent p-0 hover:bg-transparent hover:text-white focus:bg-transparent active:bg-transparent'
+                        style={pageActionButtonStyle}
+                        onClick={() => setShowComments(true)}
+                      >
+                        <i className='tabler-message text-lg' />
+                        Add comment
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
 
             <textarea
@@ -1381,7 +1415,7 @@ export default function NotionPagesView({ pageId }) {
                     setNewBlockText('')
                   }}
                   onKeyDown={handleNewBlockKeyDown}
-                  placeholder="Press 'space' for AI or '/' for commands"
+                  placeholder="Type here"
                   className='min-h-10 w-full resize-none bg-transparent py-2 text-lg outline-none'
                   style={{ color: theme.palette.text.primary }}
                 />
