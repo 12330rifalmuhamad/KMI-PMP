@@ -23,6 +23,7 @@ export const allowedBlockTypes = new Set([
   'heading4',
   'quote',
   'code',
+  'table',
   'todo',
   'bulleted',
   'numbered',

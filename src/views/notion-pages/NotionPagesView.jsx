@@ -29,6 +29,7 @@ const blockTypes = [
   { type: 'heading4', label: 'Heading 4', icon: 'tabler-h-4' },
   { type: 'quote', label: 'Quote', icon: 'tabler-quote' },
   { type: 'code', label: 'Code', icon: 'tabler-code' },
+  { type: 'table', label: 'Table', icon: 'tabler-table' },
   { type: 'todo', label: 'To-do list', icon: 'tabler-list-check' },
   { type: 'bulleted', label: 'Bulleted list', icon: 'tabler-list' },
   { type: 'numbered', label: 'Numbered list', icon: 'tabler-list-numbers' },
@@ -64,6 +65,53 @@ const normalizeBlock = block => ({
   ...block,
   metadata: parseMetadata(block.metadataJson)
 })
+
+const DEFAULT_TABLE_ROWS = 3
+const DEFAULT_TABLE_COLUMNS = 3
+const DEFAULT_IMAGE_WIDTH_PX = 720
+const MIN_IMAGE_WIDTH_PX = 240
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
+
+const createDefaultTableMetadata = () => ({
+  rows: Array.from({ length: DEFAULT_TABLE_ROWS }, () =>
+    Array.from({ length: DEFAULT_TABLE_COLUMNS }, () => '')
+  )
+})
+
+const normalizeTableMetadata = metadata => {
+  const sourceRows = Array.isArray(metadata?.rows) && metadata.rows.length ? metadata.rows : createDefaultTableMetadata().rows
+
+  const columnCount = Math.max(
+    DEFAULT_TABLE_COLUMNS,
+    ...sourceRows.map(row => (Array.isArray(row) ? row.length : 0))
+  )
+
+  const rows = sourceRows.map(row =>
+    Array.from({ length: columnCount }, (_, columnIndex) => String(row?.[columnIndex] || ''))
+  )
+
+  return {
+    ...metadata,
+    rows
+  }
+}
+
+const normalizeImageWidth = metadata => {
+  const widthPx = Number(metadata?.widthPx)
+
+  if (Number.isFinite(widthPx) && widthPx > 0) {
+    return Math.round(widthPx)
+  }
+
+  const legacyWidth = Number(metadata?.width)
+
+  if (Number.isFinite(legacyWidth) && legacyWidth > 0) {
+    return legacyWidth <= 100 ? Math.round((DEFAULT_IMAGE_WIDTH_PX * legacyWidth) / 100) : Math.round(legacyWidth)
+  }
+
+  return DEFAULT_IMAGE_WIDTH_PX
+}
 
 const getColorStyle = color => {
   const colors = {
@@ -240,6 +288,114 @@ const TypeMenuContent = ({ filter, setFilter, onSelectType, onSelectImage }) => 
   )
 }
 
+const TableBlock = ({ block, onUpdateMetadata }) => {
+  const theme = useTheme()
+  const tableRef = useRef(null)
+  const [tableData, setTableData] = useState(() => normalizeTableMetadata(block.metadata))
+  const [activeCell, setActiveCell] = useState(null)
+
+  useEffect(() => {
+    setTableData(normalizeTableMetadata(block.metadata))
+  }, [block.blockId, block.metadata])
+
+  const commitTableData = nextData => {
+    setTableData(nextData)
+    onUpdateMetadata(block, nextData)
+  }
+
+  const updateCell = (rowIndex, columnIndex, value) => {
+    setTableData(prev => ({
+      ...prev,
+      rows: prev.rows.map((row, currentRowIndex) =>
+        currentRowIndex === rowIndex ? row.map((cell, currentColumnIndex) => (currentColumnIndex === columnIndex ? value : cell)) : row
+      )
+    }))
+  }
+
+  const saveTable = () => {
+    onUpdateMetadata(block, normalizeTableMetadata(tableData))
+  }
+
+  const addRow = () => {
+    const columnCount = tableData.rows[0]?.length || DEFAULT_TABLE_COLUMNS
+
+    const nextData = {
+      ...tableData,
+      rows: [...tableData.rows, Array.from({ length: columnCount }, () => '')]
+    }
+
+    commitTableData(nextData)
+  }
+
+  const addColumn = () => {
+    const nextData = {
+      ...tableData,
+      rows: tableData.rows.map(row => [...row, ''])
+    }
+
+    commitTableData(nextData)
+  }
+
+  return (
+    <div ref={tableRef} className='w-full'>
+      <div className='mb-2 flex justify-end'>
+        <Tooltip title='Add column'>
+          <IconButton size='small' onClick={addColumn}>
+            <i className='tabler-plus text-base' />
+          </IconButton>
+        </Tooltip>
+      </div>
+
+      <div className='overflow-hidden rounded-md border' style={{ borderColor: theme.palette.divider }}>
+        <table className='w-full table-fixed border-collapse'>
+          <tbody>
+            {tableData.rows.map((row, rowIndex) => (
+              <tr key={`row-${rowIndex}`}>
+                {row.map((cell, columnIndex) => (
+                  <td
+                    key={`cell-${rowIndex}-${columnIndex}`}
+                    className='border-b border-r last:border-r-0'
+                    style={{ borderColor: theme.palette.divider, width: `${100 / row.length}%` }}
+                  >
+                    <input
+                      type='text'
+                      value={cell}
+                      onChange={event => updateCell(rowIndex, columnIndex, event.target.value)}
+                      onBlur={event => {
+                        if (!tableRef.current?.contains(event.relatedTarget)) {
+                          setActiveCell(null)
+                        }
+
+                        saveTable()
+                      }}
+                      onFocus={() => setActiveCell({ rowIndex, columnIndex })}
+                      placeholder=''
+                      className='h-12 w-full bg-transparent px-3 outline-none'
+                      style={{ color: theme.palette.text.primary }}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {activeCell?.rowIndex === tableData.rows.length - 1 && (
+        <button
+          type='button'
+          onMouseDown={event => event.preventDefault()}
+          onClick={addRow}
+          className='mt-2 flex h-8 w-full items-center justify-center rounded-md border'
+          style={{ borderColor: theme.palette.divider, color: theme.palette.text.secondary }}
+        >
+          <i className='tabler-plus text-lg' />
+        </button>
+      )}
+    </div>
+  )
+}
+
 const BlockEditor = ({
   block,
   index,
@@ -255,11 +411,90 @@ const BlockEditor = ({
   const theme = useTheme()
   const blockType = block.blockType || 'paragraph'
   const colorStyle = getColorStyle(block.blockColor)
+  const imageFrameRef = useRef(null)
+  const imageResizeHandlersRef = useRef(null)
+  const imageResizeStateRef = useRef(null)
   const inputRef = useRef(null)
+  const [isResizingImage, setIsResizingImage] = useState(false)
+
+  useEffect(() => {
+    return () => {
+      const handlers = imageResizeHandlersRef.current
+
+      if (handlers) {
+        window.removeEventListener('mousemove', handlers.move)
+        window.removeEventListener('mouseup', handlers.up)
+      }
+
+      imageResizeHandlersRef.current = null
+      imageResizeStateRef.current = null
+      document.body.style.userSelect = ''
+    }
+  }, [])
 
   useEffect(() => {
     autoResize(inputRef.current)
   }, [block.content, blockType])
+
+  const startImageResize = event => {
+    if (event.button !== 0) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    const containerWidth = Math.max(
+      MIN_IMAGE_WIDTH_PX,
+      imageFrameRef.current?.getBoundingClientRect().width || DEFAULT_IMAGE_WIDTH_PX
+    )
+
+    const startWidth = clamp(normalizeImageWidth(block.metadata), MIN_IMAGE_WIDTH_PX, containerWidth)
+
+    imageResizeStateRef.current = {
+      startX: event.clientX,
+      startWidth,
+      maxWidth: containerWidth
+    }
+
+    setIsResizingImage(true)
+    document.body.style.userSelect = 'none'
+
+    const handleMove = moveEvent => {
+      const state = imageResizeStateRef.current
+
+      if (!state) return
+
+      const nextWidth = clamp(state.startWidth + (moveEvent.clientX - state.startX), MIN_IMAGE_WIDTH_PX, state.maxWidth)
+
+      onUpdateMetadata(block, { widthPx: nextWidth }, false)
+    }
+
+    const handleUp = moveEvent => {
+      const state = imageResizeStateRef.current
+
+      if (!state) return
+
+      const finalWidth = clamp(
+        state.startWidth + (moveEvent.clientX - state.startX),
+        MIN_IMAGE_WIDTH_PX,
+        state.maxWidth
+      )
+
+      window.removeEventListener('mousemove', handleMove)
+      window.removeEventListener('mouseup', handleUp)
+
+      imageResizeHandlersRef.current = null
+      imageResizeStateRef.current = null
+      setIsResizingImage(false)
+      document.body.style.userSelect = ''
+
+      onUpdateMetadata(block, { widthPx: finalWidth })
+    }
+
+    imageResizeHandlersRef.current = { move: handleMove, up: handleUp }
+
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleUp)
+  }
 
   const handleKeyDown = event => {
     if (event.key === '/' && !block.content) {
@@ -273,14 +508,17 @@ const BlockEditor = ({
     }
   }
 
-  const textarea = placeholder => (
+  const textarea = (placeholder, extraProps = {}) => (
     <textarea
       ref={inputRef}
       rows={1}
       value={block.content || ''}
       placeholder={placeholder}
-      className={getTextareaClassName(blockType)}
-      style={{ color: colorStyle.color || theme.palette.text.primary }}
+      className={`${getTextareaClassName(blockType)} ${extraProps.className || ''}`.trim()}
+      style={{
+        color: colorStyle.color || theme.palette.text.primary,
+        ...(extraProps.style || {})
+      }}
       onChange={event => {
         autoResize(event.currentTarget)
         onChange(block.blockId, { content: event.target.value })
@@ -325,12 +563,25 @@ const BlockEditor = ({
               backgroundColor: block.isChecked ? theme.palette.primary.main : 'transparent',
               color: block.isChecked ? theme.palette.primary.contrastText : theme.palette.text.secondary
             }}
-          >
+            >
             {block.isChecked ? <i className='tabler-check text-base' /> : null}
           </button>
-          <div className={`flex-1 ${block.isChecked ? 'line-through opacity-60' : ''}`}>{textarea('To-do')}</div>
+          <div className='flex-1'>
+            {textarea('To-do', {
+              className: block.isChecked ? 'opacity-60' : '',
+              style: {
+                textDecorationLine: block.isChecked ? 'line-through' : 'none',
+                textDecorationThickness: '2px',
+                opacity: block.isChecked ? 0.7 : 1
+              }
+            })}
+          </div>
         </div>
       )
+    }
+
+    if (blockType === 'table') {
+      return <TableBlock block={block} onUpdateMetadata={onUpdateMetadata} />
     }
 
     if (blockType === 'bulleted') {
@@ -380,37 +631,62 @@ const BlockEditor = ({
 
     if (blockType === 'image') {
       const imageUrl = block.metadata?.url || block.content
+      const imageWidthPx = normalizeImageWidth(block.metadata)
+      const imageWrapperStyle = imageUrl ? { width: `${imageWidthPx}px`, maxWidth: '100%', margin: '0 auto' } : {}
 
       return (
-        <div className='group/image'>
-          {imageUrl ? (
-            <div className='relative overflow-hidden rounded-md'>
-              <img src={imageUrl} alt={block.metadata?.caption || 'Page image'} className='max-h-[520px] w-full object-cover' />
-              <div className='absolute right-3 top-3 flex gap-2 opacity-0 transition-opacity group-hover/image:opacity-100'>
-                <Button size='small' variant='contained' onClick={() => onUploadImage(block)}>
-                  Change
-                </Button>
+        <div ref={imageFrameRef} className='group/image'>
+          <div style={imageWrapperStyle}>
+            {imageUrl ? (
+              <div className='relative overflow-hidden rounded-md'>
+                <img
+                  src={imageUrl}
+                  alt={block.metadata?.caption || 'Page image'}
+                  className='max-h-[520px] w-full select-none object-cover'
+                  draggable={false}
+                  onDragStart={event => event.preventDefault()}
+                />
+                <div className='absolute right-3 top-3 flex gap-2 opacity-0 transition-opacity group-hover/image:opacity-100'>
+                  <Button size='small' variant='contained' onClick={() => onUploadImage(block)}>
+                    Change
+                  </Button>
+                </div>
+                <button
+                  type='button'
+                  aria-label='Resize image'
+                  onMouseDown={startImageResize}
+                  className={`absolute inset-y-0 right-0 flex w-4 cursor-ew-resize items-center justify-end pr-1 ${
+                    isResizingImage ? 'opacity-100' : 'opacity-0'
+                  } transition-opacity group-hover/image:opacity-100`}
+                  style={{ touchAction: 'none' }}
+                >
+                  <span
+                    className='block h-10 w-px rounded'
+                    style={{ backgroundColor: theme.palette.common.white, opacity: 0.85 }}
+                  />
+                </button>
               </div>
-            </div>
-          ) : (
-            <button
-              type='button'
-              onClick={() => onUploadImage(block)}
-              className='flex h-36 w-full items-center justify-center rounded-md border border-dashed'
-              style={{ borderColor: theme.palette.divider, color: theme.palette.text.secondary }}
-            >
-              <i className='tabler-photo-plus mr-2 text-xl' />
-              Image
-            </button>
-          )}
-          <input
-            value={block.metadata?.caption || ''}
-            onChange={event => onUpdateMetadata(block, { caption: event.target.value }, false)}
-            onBlur={event => onUpdateMetadata(block, { caption: event.target.value })}
-            placeholder='Caption'
-            className='mt-2 w-full bg-transparent text-sm outline-none'
-            style={{ color: theme.palette.text.secondary }}
-          />
+            ) : (
+              <button
+                type='button'
+                onClick={() => onUploadImage(block)}
+                className='flex h-36 w-full items-center justify-center rounded-md border border-dashed'
+                style={{ borderColor: theme.palette.divider, color: theme.palette.text.secondary }}
+              >
+                <i className='tabler-photo-plus mr-2 text-xl' />
+                Image
+              </button>
+            )}
+
+            <input
+              value={block.metadata?.caption || ''}
+              onChange={event => onUpdateMetadata(block, { caption: event.target.value }, false)}
+              onBlur={event => onUpdateMetadata(block, { caption: event.target.value })}
+              placeholder='Caption'
+              className='mt-2 w-full bg-transparent text-sm outline-none'
+              style={{ color: theme.palette.text.secondary }}
+            />
+          </div>
         </div>
       )
     }
@@ -419,8 +695,8 @@ const BlockEditor = ({
   }
 
   return (
-    <div className='group/block relative flex gap-2 py-1'>
-      <div className='flex w-12 shrink-0 justify-end gap-1 pt-1 opacity-0 transition-opacity group-hover/block:opacity-100'>
+    <div className='group/block relative py-1'>
+      <div className='absolute -left-12 top-1 hidden justify-end gap-1 opacity-0 transition-opacity group-hover/block:opacity-100 md:flex'>
         <Tooltip title='Add block'>
           <IconButton size='small' onClick={event => onOpenInsert(event, block.blockId)}>
             <i className='tabler-plus text-base' />
@@ -432,7 +708,7 @@ const BlockEditor = ({
           </IconButton>
         </Tooltip>
       </div>
-      <Box className='min-w-0 flex-1 rounded px-2 py-1' sx={{ ...colorStyle }}>
+      <Box className='min-w-0 rounded py-1' sx={{ ...colorStyle }}>
         {content()}
       </Box>
     </div>
@@ -653,9 +929,11 @@ export default function NotionPagesView({ pageId }) {
   }
 
   const changeBlockType = async (block, blockType) => {
-    const nextBlock = { ...block, blockType }
+    const nextMetadata = blockType === 'table' ? normalizeTableMetadata(block.metadata) : block.metadata || {}
 
-    updateLocalBlock(block.blockId, { blockType })
+    const nextBlock = { ...block, blockType, metadata: nextMetadata }
+
+    updateLocalBlock(block.blockId, { blockType, metadata: nextMetadata })
     setActionMenu({ anchorEl: null, block: null })
     await saveBlock(nextBlock)
   }
@@ -754,14 +1032,14 @@ export default function NotionPagesView({ pageId }) {
 
       if (imageUploadTarget.blockId) {
         const block = blocks.find(item => String(item.blockId) === String(imageUploadTarget.blockId))
-        const metadata = { ...(block?.metadata || {}), url }
+        const metadata = { ...(block?.metadata || {}), url, widthPx: normalizeImageWidth(block?.metadata) }
 
         updateLocalBlock(imageUploadTarget.blockId, { content: url, metadata })
         await saveBlock({ ...block, content: url, metadata })
       } else {
         await createBlock('image', imageUploadTarget.afterBlockId, {
           content: url,
-          metadata: { url }
+          metadata: { url, widthPx: DEFAULT_IMAGE_WIDTH_PX }
         })
       }
     } catch (error) {
@@ -799,7 +1077,11 @@ export default function NotionPagesView({ pageId }) {
   }
 
   const selectInsertType = async blockType => {
-    await createBlock(blockType, insertMenu.afterBlockId)
+    await createBlock(
+      blockType,
+      insertMenu.afterBlockId,
+      blockType === 'table' ? { metadata: createDefaultTableMetadata() } : {}
+    )
     closeInsertMenu()
   }
 
@@ -821,6 +1103,13 @@ export default function NotionPagesView({ pageId }) {
     const nextPosition = coverPositions[(currentIndex + 1) % coverPositions.length]
 
     await savePage({ pageCoverPosition: nextPosition })
+  }
+
+  const removeCover = async () => {
+    await savePage({
+      pageCoverUrl: null,
+      pageCoverPosition: 'center'
+    })
   }
 
   const pageContent = () => {
@@ -903,40 +1192,95 @@ export default function NotionPagesView({ pageId }) {
                 className='h-full w-full object-cover'
                 style={{ objectPosition: page.pageCoverPosition || 'center' }}
               />
-              <div className='absolute right-4 top-4 flex overflow-hidden rounded-md border opacity-0 transition-opacity group-hover/cover:opacity-100' style={{ borderColor: theme.palette.divider, backgroundColor: theme.palette.background.paper }}>
+              <div
+                className='absolute right-4 top-4 flex overflow-hidden rounded-md border opacity-0 transition-opacity group-hover/cover:opacity-100'
+                style={{ borderColor: theme.palette.divider, backgroundColor: theme.palette.background.paper }}
+              >
                 <button type='button' className='px-3 py-2 text-sm' onClick={() => coverInputRef.current?.click()}>
                   Change
                 </button>
-                <button type='button' className='border-l px-3 py-2 text-sm' style={{ borderColor: theme.palette.divider }} onClick={cycleCoverPosition}>
+                <button
+                  type='button'
+                  className='border-l px-3 py-2 text-sm'
+                  style={{ borderColor: theme.palette.divider }}
+                  onClick={removeCover}
+                >
+                  Remove
+                </button>
+                <button
+                  type='button'
+                  className='border-l px-3 py-2 text-sm'
+                  style={{ borderColor: theme.palette.divider }}
+                  onClick={cycleCoverPosition}
+                >
                   Reposition
                 </button>
-                <a href={page.pageCoverUrl} download className='border-l px-3 py-2' style={{ borderColor: theme.palette.divider }}>
+                <a
+                  href={page.pageCoverUrl}
+                  download
+                  className='border-l px-3 py-2'
+                  style={{ borderColor: theme.palette.divider }}
+                >
                   <i className='tabler-download text-lg' />
                 </a>
               </div>
             </div>
           )}
 
-          <main className='mx-auto max-w-[980px] px-4 pb-32 pt-8 md:px-10'>
-            {!page.pageCoverUrl && !page.pageIcon && (
-              <div className='mb-5 flex flex-wrap gap-4 text-sm' style={{ color: theme.palette.text.secondary }}>
-                <button type='button' className='flex items-center gap-2 hover:text-white' onClick={event => setEmojiAnchor(event.currentTarget)}>
-                  <i className='tabler-mood-smile text-lg' />
-                  Add icon
-                </button>
-                <button type='button' className='flex items-center gap-2 hover:text-white' onClick={() => coverInputRef.current?.click()}>
-                  <i className='tabler-photo text-lg' />
-                  Add cover
-                </button>
-                <button type='button' className='flex items-center gap-2 hover:text-white' onClick={() => setShowComments(true)}>
-                  <i className='tabler-message text-lg' />
-                  Add comment
-                </button>
+          <main className={`mx-auto max-w-[980px] px-4 pb-32 md:px-10 ${page.pageCoverUrl ? 'pt-0' : 'pt-8'}`}>
+            {(!page.pageIcon || !page.pageCoverUrl || !showComments) && (
+              <div
+                className={`mb-5 flex flex-wrap gap-4 text-sm ${page.pageCoverUrl ? 'mt-5' : ''}`}
+                style={{ color: theme.palette.text.secondary }}
+              >
+                {!page.pageIcon && (
+                  <button
+                    type='button'
+                    className='flex items-center gap-2 hover:text-white'
+                    onClick={event => setEmojiAnchor(event.currentTarget)}
+                  >
+                    <i className='tabler-mood-smile text-lg' />
+                    Add icon
+                  </button>
+                )}
+                {!page.pageCoverUrl && (
+                  <button
+                    type='button'
+                    className='flex items-center gap-2 hover:text-white'
+                    onClick={() => coverInputRef.current?.click()}
+                  >
+                    <i className='tabler-photo text-lg' />
+                    Add cover
+                  </button>
+                )}
+                {!showComments && (
+                  <button
+                    type='button'
+                    className='flex items-center gap-2 hover:text-white'
+                    onClick={() => setShowComments(true)}
+                  >
+                    <i className='tabler-message text-lg' />
+                    Add comment
+                  </button>
+                )}
               </div>
             )}
 
             {page.pageIcon && (
-              <button type='button' className='mb-4 text-7xl leading-none' onClick={event => setEmojiAnchor(event.currentTarget)}>
+              <button
+                type='button'
+                className={`relative z-10 inline-flex border-0 bg-transparent p-0 text-7xl leading-none shadow-none hover:bg-transparent focus:bg-transparent active:bg-transparent ${
+                  page.pageCoverUrl ? '-mt-16 mb-8' : 'mb-4'
+                }`}
+                style={{
+                  appearance: 'none',
+                  WebkitAppearance: 'none',
+                  background: 'transparent',
+                  boxShadow: 'none',
+                  outline: 'none'
+                }}
+                onClick={event => setEmojiAnchor(event.currentTarget)}
+              >
                 {page.pageIcon}
               </button>
             )}
@@ -1015,8 +1359,8 @@ export default function NotionPagesView({ pageId }) {
                 />
               ))}
 
-              <div className='group/new flex gap-2 py-1'>
-                <div className='flex w-12 shrink-0 justify-end gap-1 pt-1 opacity-100 md:opacity-0 md:transition-opacity md:group-hover/new:opacity-100'>
+              <div className='group/new relative py-1'>
+                <div className='absolute -left-12 top-1 hidden justify-end gap-1 opacity-0 transition-opacity group-hover/new:opacity-100 md:flex'>
                   <Tooltip title='Add block'>
                     <IconButton size='small' onClick={event => openInsertMenu(event, blocks.at(-1)?.blockId || null)}>
                       <i className='tabler-plus text-base' />
@@ -1038,7 +1382,7 @@ export default function NotionPagesView({ pageId }) {
                   }}
                   onKeyDown={handleNewBlockKeyDown}
                   placeholder="Press 'space' for AI or '/' for commands"
-                  className='min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-lg outline-none'
+                  className='min-h-10 w-full resize-none bg-transparent py-2 text-lg outline-none'
                   style={{ color: theme.palette.text.primary }}
                 />
               </div>

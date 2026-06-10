@@ -11,6 +11,10 @@ import {
   unauthorizedResponse
 } from '../../_utils'
 
+const createDefaultTableMetadata = () => ({
+  rows: Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => ''))
+})
+
 export async function POST(request, { params }) {
   const currentUser = await getCurrentUser()
 
@@ -30,6 +34,11 @@ export async function POST(request, { params }) {
     const afterBlockId = parseBigIntParam(body?.afterBlockId)
     const blockType = normalizeBlockType(body?.blockType || body?.type)
     const metadataJson = normalizeMetadata(body?.metadataJson ?? body?.metadata)
+
+    const finalMetadataJson =
+      blockType === 'table' && (!metadataJson || metadataJson === '{}')
+        ? JSON.stringify(createDefaultTableMetadata())
+        : metadataJson
 
     const block = await prisma.$transaction(async tx => {
       let sortOrder = body?.sortOrder ? Number(body.sortOrder) : null
@@ -80,7 +89,7 @@ export async function POST(request, { params }) {
           pageId,
           blockType,
           content: body?.content ? String(body.content) : '',
-          metadataJson,
+          metadataJson: finalMetadataJson,
           blockColor: body?.blockColor ? String(body.blockColor) : 'default',
           isChecked: body?.isChecked ? 1 : 0,
           sortOrder,
