@@ -46,6 +46,8 @@ model User {
   notifications   trNotification[]
   activityLogs    logTaskActivity[]
   taskUpdates     trTaskUpdate[]
+  notionPages     NotionPage[]
+  notionComments  trNotionPageComment[]
 
   @@map("mUser")
 }
@@ -114,6 +116,29 @@ model DashboardWidget {
   board Board @relation(fields: [boardId], references: [boardId], onDelete: Cascade)
 
   @@map("trDashboardWidget")
+}
+
+model NotionPage {
+  pageId            BigInt    @id @default(autoincrement()) @map("intNotionPage_ID")
+  userId            BigInt    @map("intUser_ID")
+  pageTitle         String    @default("New page") @map("txtNotionPageTitle")
+  pageIcon          String?   @map("txtNotionPageIcon")
+  pageCoverUrl      String?   @map("txtNotionPageCoverUrl")
+  pageCoverPosition String?   @default("center") @map("txtNotionPageCoverPosition")
+  isFavorite        Int?      @default(0) @map("bitIsFavorite")
+  sortOrder         Int?      @default(0) @map("intSortOrder")
+  dtmInserted       DateTime  @default(now()) @map("dtmInserted")
+  txtInsertedBy     String?   @map("txtInsertedBy")
+  dtmUpdated        DateTime? @updatedAt @map("dtmUpdated")
+  txtUpdatedBy      String?   @map("txtUpdatedBy")
+  bitActive         Int?      @default(1) @map("bitActive")
+
+  // Relasi
+  mUser    User                  @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  blocks   trNotionPageBlock[]
+  comments trNotionPageComment[]
+
+  @@map("mNotionPage")
 }
 
 model BoardColumn {
@@ -287,6 +312,45 @@ model trTaskUpdate {
   user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
   @@map("trTaskUpdate")
+}
+
+model trNotionPageBlock {
+  blockId       BigInt    @id @default(autoincrement()) @map("intNotionBlock_ID")
+  pageId        BigInt    @map("intNotionPage_ID")
+  blockType     String    @default("paragraph") @map("txtNotionBlockType")
+  content       String?   @map("txtNotionBlockContent") @db.Text
+  metadataJson  String?   @map("txtNotionBlockMetadataJson") @db.Text
+  blockColor    String?   @default("default") @map("txtNotionBlockColor")
+  isChecked     Int?      @default(0) @map("bitIsChecked")
+  sortOrder     Int?      @default(0) @map("intSortOrder")
+  dtmInserted   DateTime  @default(now()) @map("dtmInserted")
+  txtInsertedBy String?   @map("txtInsertedBy")
+  dtmUpdated    DateTime? @updatedAt @map("dtmUpdated")
+  txtUpdatedBy  String?   @map("txtUpdatedBy")
+  bitActive     Int?      @default(1) @map("bitActive")
+
+  // Relasi
+  page NotionPage @relation(fields: [pageId], references: [pageId], onDelete: Cascade)
+
+  @@map("trNotionPageBlock")
+}
+
+model trNotionPageComment {
+  commentId      BigInt    @id @default(autoincrement()) @map("intNotionComment_ID")
+  pageId         BigInt    @map("intNotionPage_ID")
+  userId         BigInt    @map("intUser_ID")
+  commentContent String    @map("txtNotionCommentContent") @db.Text
+  dtmInserted    DateTime  @default(now()) @map("dtmInserted")
+  txtInsertedBy  String?   @map("txtInsertedBy")
+  dtmUpdated     DateTime? @updatedAt @map("dtmUpdated")
+  txtUpdatedBy   String?   @map("txtUpdatedBy")
+  bitActive      Int?      @default(1) @map("bitActive")
+
+  // Relasi
+  page  NotionPage @relation(fields: [pageId], references: [pageId], onDelete: Cascade)
+  mUser User       @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@map("trNotionPageComment")
 }
 
 // =============================================================================

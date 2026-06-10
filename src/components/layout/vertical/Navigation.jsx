@@ -348,6 +348,7 @@ export default function Sidebar() {
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false) // Create WS
   const [newTitle, setNewTitle] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isCreatingNotionPage, setIsCreatingNotionPage] = useState(false)
 
   const [isCreateBoardDialogOpen, setIsCreateBoardDialogOpen] = useState(false)
   const [targetWorkspaceId, setTargetWorkspaceId] = useState(null)
@@ -502,6 +503,34 @@ export default function Sidebar() {
     }
   }
 
+  const handleCreateNotionPage = async () => {
+    setIsCreatingNotionPage(true)
+
+    try {
+      const res = await fetch('/api/notion-pages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageTitle: 'New page' })
+      })
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+
+        throw new Error(errorData.error || errorData.message || 'Create page failed')
+      }
+
+      const newPage = await res.json()
+
+      mutate('/api/notion-pages')
+      router.push(`/notion-pages/${newPage.pageId}`)
+    } catch (error) {
+      console.error(error)
+      alert(`Gagal membuat page baru: ${error.message}`)
+    } finally {
+      setIsCreatingNotionPage(false)
+    }
+  }
+
   const handleBoardCreated = newBoard => {
     mutate('/api/boards')
     if (targetWorkspaceId) setOpenWorkspaces(prev => ({ ...prev, [targetWorkspaceId]: true }))
@@ -563,6 +592,35 @@ export default function Sidebar() {
               isCollapsed={isCollapsed}
             />
             <NavItem href='#' icon={<i className='tabler-calendar-check' />} text='My work' isCollapsed={isCollapsed} />
+            <li>
+              <Box
+                component='button'
+                onClick={handleCreateNotionPage}
+                disabled={isCreatingNotionPage}
+                title={isCollapsed ? 'Add New Page' : ''}
+                className={`flex w-full items-center rounded-md p-2 text-sm transition-all duration-300 ${isCollapsed ? 'justify-center px-0' : 'px-2'}`}
+                sx={{
+                  backgroundColor: pathname.includes('/notion-pages') ? theme.palette.action.selected : 'transparent',
+                  border: 'none',
+                  cursor: isCreatingNotionPage ? 'default' : 'pointer',
+                  color: pathname.includes('/notion-pages') ? theme.palette.primary.main : theme.palette.text.primary,
+                  '&:hover': {
+                    backgroundColor: pathname.includes('/notion-pages') ? theme.palette.action.selected : 'transparent',
+                    color: theme.palette.primary.main
+                  },
+                  '&:disabled': {
+                    opacity: 0.6
+                  }
+                }}
+              >
+                <i className={`${isCreatingNotionPage ? 'tabler-loader-2 animate-spin' : 'tabler-file-plus'} text-lg`} />
+                <span
+                  className={`overflow-hidden whitespace-nowrap transition-all duration-300 ${isCollapsed ? 'ml-0 w-0 opacity-0' : 'ml-3 w-auto opacity-100'}`}
+                >
+                  Add New Page
+                </span>
+              </Box>
+            </li>
           </ul>
         </nav>
         <hr className='mx-2' style={{ borderColor: theme.palette.divider }} />
