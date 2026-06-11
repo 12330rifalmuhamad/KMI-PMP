@@ -324,6 +324,57 @@ const WorkspaceNavItem = ({ workspace, isCollapsed, isOpen, onToggle, onAddBoard
   )
 }
 
+const NotionPageNavItem = ({ page, active, isCollapsed, onDelete }) => {
+  const theme = useTheme()
+
+  const handleDelete = event => {
+    event.preventDefault()
+    event.stopPropagation()
+    onDelete(page)
+  }
+
+  return (
+    <li className='group relative'>
+      <Link href={`/notion-pages/${page.pageId}`} title={isCollapsed ? page.pageTitle || 'Untitled' : ''} className='block'>
+        <Box
+          className={`flex min-h-9 items-center rounded-md text-sm transition-all duration-200 ${isCollapsed ? 'justify-center px-0 py-2' : 'px-2 py-1.5'}`}
+          sx={{
+            backgroundColor: 'transparent',
+            color: active ? theme.palette.primary.main : theme.palette.text.primary,
+            '&:hover': {
+              backgroundColor: 'transparent',
+              color: theme.palette.primary.main
+            }
+          }}
+        >
+          <span className={`flex shrink-0 items-center justify-center ${isCollapsed ? 'text-xl' : 'w-5 text-lg'}`}>
+            {page.pageIcon || <i className='tabler-file text-lg' />}
+          </span>
+          {!isCollapsed && (
+            <span className='ml-2 block min-w-0 flex-1 truncate pr-6'>{page.pageTitle || 'Untitled'}</span>
+          )}
+        </Box>
+      </Link>
+
+      {!isCollapsed && (
+        <IconButton
+          size='small'
+          onClick={handleDelete}
+          className='!absolute right-0 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100'
+          sx={{
+            color: theme.palette.text.secondary,
+            padding: '3px',
+            '&:hover': { backgroundColor: 'transparent', color: theme.palette.error.main }
+          }}
+          title='Delete page'
+        >
+          <i className='tabler-trash text-xs' />
+        </IconButton>
+      )}
+    </li>
+  )
+}
+
 // --- MAIN SIDEBAR COMPONENT ---
 export default function Sidebar() {
   const { mutate } = useSWRConfig()
@@ -342,6 +393,7 @@ export default function Sidebar() {
 
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isWorkspacesSectionOpen, setIsWorkspacesSectionOpen] = useState(true)
+  const [isPrivatePagesOpen, setIsPrivatePagesOpen] = useState(true)
   const [openWorkspaces, setOpenWorkspaces] = useState({})
 
   // --- STATES ---
@@ -361,6 +413,7 @@ export default function Sidebar() {
   // Fetch Data
   const { data: workspaces } = useSWR('/api/workspaces', fetcher)
   const { data: boards, error } = useSWR('/api/boards', fetcher)
+  const { data: notionPages, error: notionPagesError } = useSWR('/api/notion-pages', fetcher)
 
   const boardsByWorkspace = useMemo(() => {
     if (!boards || !workspaces) return {}
@@ -522,12 +575,39 @@ export default function Sidebar() {
       const newPage = await res.json()
 
       mutate('/api/notion-pages')
+      setIsPrivatePagesOpen(true)
       router.push(`/notion-pages/${newPage.pageId}`)
     } catch (error) {
       console.error(error)
       alert(`Gagal membuat page baru: ${error.message}`)
     } finally {
       setIsCreatingNotionPage(false)
+    }
+  }
+
+  const handleDeleteNotionPage = async page => {
+    if (!page?.pageId) return
+    if (!confirm(`Delete page "${page.pageTitle || 'Untitled'}"?`)) return
+
+    try {
+      const res = await fetch(`/api/notion-pages/${page.pageId}`, { method: 'DELETE' })
+
+      if (!res.ok) throw new Error('Delete failed')
+
+      const nextPage = Array.isArray(notionPages)
+        ? notionPages.find(item => String(item.pageId) !== String(page.pageId))
+        : null
+
+      const isCurrentPage = pathname.includes(`/notion-pages/${page.pageId}`)
+
+      mutate('/api/notion-pages')
+
+      if (isCurrentPage) {
+        router.push(nextPage ? `/notion-pages/${nextPage.pageId}` : '/notion-pages')
+      }
+    } catch (error) {
+      console.error(error)
+      alert('Gagal menghapus page.')
     }
   }
 
@@ -592,41 +672,93 @@ export default function Sidebar() {
               isCollapsed={isCollapsed}
             />
             <NavItem href='#' icon={<i className='tabler-calendar-check' />} text='My work' isCollapsed={isCollapsed} />
-            <li>
-              <Box
-                component='button'
-                onClick={handleCreateNotionPage}
-                disabled={isCreatingNotionPage}
-                title={isCollapsed ? 'Add New Page' : ''}
-                className={`flex w-full items-center rounded-md p-2 text-sm transition-all duration-300 ${isCollapsed ? 'justify-center px-0' : 'px-2'}`}
-                sx={{
-                  backgroundColor: pathname.includes('/notion-pages') ? theme.palette.action.selected : 'transparent',
-                  border: 'none',
-                  cursor: isCreatingNotionPage ? 'default' : 'pointer',
-                  color: pathname.includes('/notion-pages') ? theme.palette.primary.main : theme.palette.text.primary,
-                  '&:hover': {
-                    backgroundColor: pathname.includes('/notion-pages') ? theme.palette.action.selected : 'transparent',
-                    color: theme.palette.primary.main
-                  },
-                  '&:disabled': {
-                    opacity: 0.6
-                  }
-                }}
-              >
-                <i className={`${isCreatingNotionPage ? 'tabler-loader-2 animate-spin' : 'tabler-file-plus'} text-lg`} />
-                <span
-                  className={`overflow-hidden whitespace-nowrap transition-all duration-300 ${isCollapsed ? 'ml-0 w-0 opacity-0' : 'ml-3 w-auto opacity-100'}`}
-                >
-                  Add New Page
-                </span>
-              </Box>
-            </li>
           </ul>
         </nav>
         <hr className='mx-2' style={{ borderColor: theme.palette.divider }} />
 
         {/* Workspaces Section */}
         <div className='py-4 overflow-y-auto custom-scrollbar flex-1 px-2'>
+          <div className={`flex items-center mb-2 group ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
+            <Box
+              component='button'
+              onClick={() => {
+                if (isCollapsed) setIsCollapsed(false)
+                setIsPrivatePagesOpen(!isPrivatePagesOpen)
+              }}
+              className={`flex items-center ${isCollapsed ? 'justify-center w-full' : 'flex-1'}`}
+              sx={{
+                backgroundColor: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                textAlign: 'left',
+                width: '100%',
+                color: pathname.includes('/notion-pages') ? theme.palette.primary.main : theme.palette.text.primary,
+                p: 0,
+                '&:hover': {
+                  color: theme.palette.primary.main
+                }
+              }}
+              title='Pages'
+            >
+              {isCollapsed ? (
+                <i className='tabler-file-text text-xl' />
+              ) : (
+                <>
+                  <i
+                    className={`tabler-chevron-down transition-transform duration-200 ${isPrivatePagesOpen ? 'rotate-0' : '-rotate-90'}`}
+                    style={{ color: theme.palette.text.disabled }}
+                  />
+                  <span className='ml-2 font-semibold'>Pages</span>
+                </>
+              )}
+            </Box>
+
+            {!isCollapsed && (
+              <Box
+                component='button'
+                onClick={handleCreateNotionPage}
+                disabled={isCreatingNotionPage}
+                className='p-1 rounded transition-colors flex-shrink-0'
+                sx={{
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  cursor: isCreatingNotionPage ? 'default' : 'pointer',
+                  color: theme.palette.text.secondary,
+                  '&:hover': {
+                    color: theme.palette.primary.main
+                  },
+                  '&:disabled': {
+                    opacity: 0.6
+                  }
+                }}
+                title='Add New Page'
+              >
+                <i className={`${isCreatingNotionPage ? 'tabler-loader-2 animate-spin' : 'tabler-plus'}`} />
+              </Box>
+            )}
+          </div>
+
+          {isPrivatePagesOpen && !isCollapsed && (
+            <ul className='mb-5 flex flex-col space-y-1'>
+              {!notionPages && !notionPagesError && (
+                <li className='px-2 text-xs' style={{ color: theme.palette.text.disabled }}>
+                  Loading...
+                </li>
+              )}
+
+              {Array.isArray(notionPages) &&
+                notionPages.map(page => (
+                  <NotionPageNavItem
+                    key={page.pageId}
+                    page={page}
+                    active={pathname.includes(`/notion-pages/${page.pageId}`)}
+                    isCollapsed={isCollapsed}
+                    onDelete={handleDeleteNotionPage}
+                  />
+                ))}
+            </ul>
+          )}
+
           <div className={`flex items-center mb-2 group ${isCollapsed ? 'justify-center' : 'justify-between'}`}>
             <Box
               component='button'

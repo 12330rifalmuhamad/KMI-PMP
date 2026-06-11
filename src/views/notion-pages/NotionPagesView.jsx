@@ -1,8 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
 import useSWR from 'swr'
@@ -70,8 +69,13 @@ const DEFAULT_TABLE_ROWS = 3
 const DEFAULT_TABLE_COLUMNS = 3
 const DEFAULT_IMAGE_WIDTH_PX = 720
 const MIN_IMAGE_WIDTH_PX = 240
+const TEXT_PLACEHOLDER = 'Type here.....'
+const INDENT_WIDTH_PX = 32
+const MAX_INDENT_LEVEL = 6
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
+
+const getBlockIndentLevel = block => clamp(Number(block?.metadata?.indentLevel) || 0, 0, MAX_INDENT_LEVEL)
 
 const createDefaultTableMetadata = () => ({
   rows: Array.from({ length: DEFAULT_TABLE_ROWS }, () =>
@@ -134,13 +138,13 @@ const getTextareaClassName = blockType => {
     heading2: 'text-4xl font-bold leading-tight',
     heading3: 'text-3xl font-semibold leading-snug',
     heading4: 'text-2xl font-semibold leading-snug',
-    quote: 'text-xl leading-relaxed',
+    quote: 'text-xl leading-snug',
     code: 'font-mono text-sm leading-relaxed',
-    todo: 'text-lg leading-relaxed',
-    bulleted: 'text-lg leading-relaxed',
-    numbered: 'text-lg leading-relaxed',
-    toggle: 'text-lg leading-relaxed',
-    paragraph: 'text-lg leading-relaxed'
+    todo: 'text-lg leading-snug',
+    bulleted: 'text-lg leading-snug',
+    numbered: 'text-lg leading-snug',
+    toggle: 'text-lg leading-snug',
+    paragraph: 'text-lg leading-snug'
   }
 
   return `${base} ${map[blockType] || map.paragraph}`
@@ -165,80 +169,6 @@ const formatRelativeTime = value => {
   if (hours < 24) return `${hours}h`
 
   return `${Math.round(hours / 24)}d`
-}
-
-const FeatureSidebar = ({ pages = [], activePageId, onCreatePage, onDeletePage, isCreating }) => {
-  const theme = useTheme()
-
-  return (
-    <aside
-      className='flex h-full w-full shrink-0 flex-col border-r md:w-[260px]'
-      style={{ backgroundColor: theme.palette.background.paper, borderColor: theme.palette.divider }}
-    >
-      <div className='flex items-center justify-between px-4 pb-2 pt-4'>
-        <span className='text-sm font-semibold' style={{ color: theme.palette.text.secondary }}>
-          Private
-        </span>
-        <Tooltip title='Add New Page'>
-          <IconButton size='small' onClick={onCreatePage} disabled={isCreating}>
-            <i className='tabler-plus text-lg' />
-          </IconButton>
-        </Tooltip>
-      </div>
-
-      <div className='flex-1 overflow-y-auto px-2 pb-4'>
-        {pages.map(page => {
-          const isActive = String(page.pageId) === String(activePageId)
-
-          return (
-            <div key={page.pageId} className='group relative'>
-              <Link href={`/notion-pages/${page.pageId}`} className='block'>
-                <Box
-                  className='flex min-h-10 items-center gap-3 rounded-md px-3 py-2 text-sm font-medium'
-                  sx={{
-                    color: isActive ? 'text.primary' : 'text.secondary',
-                    backgroundColor: isActive ? 'action.selected' : 'transparent',
-                    '&:hover': {
-                      color: 'text.primary',
-                      backgroundColor: 'action.hover'
-                    }
-                  }}
-                >
-                  <span className='flex w-6 shrink-0 items-center justify-center text-lg'>
-                    {page.pageIcon || <i className='tabler-file text-xl' />}
-                  </span>
-                  <span className='truncate'>{page.pageTitle || 'Untitled'}</span>
-                </Box>
-              </Link>
-
-              <Tooltip title='Delete page'>
-                <IconButton
-                  size='small'
-                  onClick={() => onDeletePage(page)}
-                  className='!absolute right-1 top-1 opacity-0 transition-opacity group-hover:opacity-100'
-                  sx={{ color: 'text.secondary' }}
-                >
-                  <i className='tabler-trash text-sm' />
-                </IconButton>
-              </Tooltip>
-            </div>
-          )
-        })}
-
-        {pages.length === 0 && (
-          <button
-            type='button'
-            onClick={onCreatePage}
-            className='mt-2 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm'
-            style={{ color: theme.palette.text.secondary }}
-          >
-            <i className='tabler-file-plus text-lg' />
-            New page
-          </button>
-        )}
-      </div>
-    </aside>
-  )
 }
 
 const TypeMenuContent = ({ filter, setFilter, onSelectType, onSelectImage }) => {
@@ -399,11 +329,23 @@ const TableBlock = ({ block, onUpdateMetadata }) => {
 const BlockEditor = ({
   block,
   index,
+  numberLabel,
+  isSelected,
+  selectedBlockCount,
+  shouldFocus,
   onChange,
   onSave,
   onOpenInsert,
   onOpenAction,
   onCreateAfter,
+  onAutoNumberList,
+  onIndent,
+  onSelect,
+  onFocusBlock,
+  onFocusConsumed,
+  onDeleteCurrent,
+  onDeleteSelected,
+  onMergeWithPrevious,
   onToggleChecked,
   onUpdateMetadata,
   onUploadImage
@@ -411,11 +353,14 @@ const BlockEditor = ({
   const theme = useTheme()
   const blockType = block.blockType || 'paragraph'
   const colorStyle = getColorStyle(block.blockColor)
+  const indentLevel = getBlockIndentLevel(block)
   const imageFrameRef = useRef(null)
   const imageResizeHandlersRef = useRef(null)
   const imageResizeStateRef = useRef(null)
   const inputRef = useRef(null)
+  const skipNextBlurSaveRef = useRef(false)
   const [isResizingImage, setIsResizingImage] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -435,6 +380,18 @@ const BlockEditor = ({
   useEffect(() => {
     autoResize(inputRef.current)
   }, [block.content, blockType])
+
+  useEffect(() => {
+    if (!shouldFocus || !inputRef.current) return
+
+    inputRef.current.focus()
+
+    const cursorPosition = inputRef.current.value.length
+
+    inputRef.current.setSelectionRange(cursorPosition, cursorPosition)
+    autoResize(inputRef.current)
+    onFocusConsumed?.()
+  }, [onFocusConsumed, shouldFocus])
 
   const startImageResize = event => {
     if (event.button !== 0) return
@@ -496,15 +453,112 @@ const BlockEditor = ({
     window.addEventListener('mouseup', handleUp)
   }
 
-  const handleKeyDown = event => {
-    if (event.key === '/' && !block.content) {
+  const handleKeyDown = async event => {
+    const currentContent = block.content || ''
+    const selectionStart = event.currentTarget.selectionStart ?? currentContent.length
+    const selectionEnd = event.currentTarget.selectionEnd ?? selectionStart
+    const selectionCollapsed = selectionStart === selectionEnd
+
+    if (event.key === '/' && !currentContent) {
       onOpenAction(event, block)
+    }
+
+    if (
+      ['Backspace', 'Delete'].includes(event.key) &&
+      selectionCollapsed &&
+      selectedBlockCount > 1 &&
+      onDeleteSelected &&
+      isSelected
+    ) {
+      event.preventDefault()
+      await onDeleteSelected(block)
+
+      return
+    }
+
+    if (['Backspace', 'Delete'].includes(event.key) && selectionCollapsed && selectionStart === 0) {
+      if (indentLevel > 0) {
+        event.preventDefault()
+        await onIndent(block, -1)
+
+        return
+      }
+
+      if (currentContent.trim() && onMergeWithPrevious && index > 0) {
+        event.preventDefault()
+        await onMergeWithPrevious(block)
+
+        return
+      }
+    }
+
+    if (['Backspace', 'Delete'].includes(event.key) && !currentContent.trim()) {
+      event.preventDefault()
+      await onDeleteCurrent(block)
+
+      return
+    }
+
+    if (event.key === 'Tab') {
+      event.preventDefault()
+      await onIndent(block, event.shiftKey ? -1 : 1)
+
+      return
+    }
+
+    if (
+      event.key === ' ' &&
+      !event.shiftKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      blockType !== 'code'
+    ) {
+      const selectionStart = event.currentTarget.selectionStart ?? currentContent.length
+      const selectionEnd = event.currentTarget.selectionEnd ?? selectionStart
+      const beforeCursor = currentContent.slice(0, selectionStart)
+      const afterCursor = currentContent.slice(selectionEnd)
+      const numberMatch = beforeCursor.match(/^\s*(\d+)\.$/)
+
+      if (numberMatch && !afterCursor.trim()) {
+        event.preventDefault()
+        await onAutoNumberList(block, Number(numberMatch[1]))
+
+        return
+      }
     }
 
     if (event.key === 'Enter' && !event.shiftKey && blockType !== 'code') {
       event.preventDefault()
-      onSave(block)
-      onCreateAfter(block)
+
+      const selectionStart = event.currentTarget.selectionStart ?? currentContent.length
+      const selectionEnd = event.currentTarget.selectionEnd ?? selectionStart
+      const beforeCursor = currentContent.slice(0, selectionStart)
+      const afterCursor = currentContent.slice(selectionEnd)
+      const canContinueList = ['bulleted', 'numbered', 'todo'].includes(blockType) && beforeCursor.trim()
+      const nextBlockType = canContinueList ? blockType : 'paragraph'
+
+      const nextMetadata = {
+        ...(nextBlockType === blockType ? block.metadata || {} : {}),
+        indentLevel
+      }
+
+      delete nextMetadata.numberStart
+
+      onChange(block.blockId, { content: beforeCursor })
+      await onSave({ ...block, content: beforeCursor })
+      skipNextBlurSaveRef.current = true
+
+      const createdBlock = await onCreateAfter(block, {
+        blockType: nextBlockType,
+        content: afterCursor,
+        metadata: nextMetadata,
+        isChecked: 0
+      })
+
+      if (!createdBlock) {
+        skipNextBlurSaveRef.current = false
+      }
     }
   }
 
@@ -513,7 +567,7 @@ const BlockEditor = ({
       ref={inputRef}
       rows={1}
       value={block.content || ''}
-      placeholder={placeholder}
+      placeholder={isFocused ? placeholder : ''}
       className={`${getTextareaClassName(blockType)} ${extraProps.className || ''}`.trim()}
       style={{
         color: colorStyle.color || theme.palette.text.primary,
@@ -523,7 +577,21 @@ const BlockEditor = ({
         autoResize(event.currentTarget)
         onChange(block.blockId, { content: event.target.value })
       }}
-      onBlur={() => onSave(block)}
+      onFocus={() => {
+        setIsFocused(true)
+        onFocusBlock(block.blockId)
+      }}
+      onBlur={event => {
+        setIsFocused(false)
+
+        if (skipNextBlurSaveRef.current) {
+          skipNextBlurSaveRef.current = false
+
+          return
+        }
+
+        onSave({ ...block, content: event.currentTarget.value })
+      }}
       onKeyDown={handleKeyDown}
     />
   )
@@ -538,7 +606,7 @@ const BlockEditor = ({
             border: `1px solid ${theme.palette.divider}`
           }}
         >
-          {textarea('Code')}
+          {textarea(TEXT_PLACEHOLDER)}
         </div>
       )
     }
@@ -546,7 +614,7 @@ const BlockEditor = ({
     if (blockType === 'quote') {
       return (
         <div className='border-l-4 py-1 pl-5' style={{ borderColor: theme.palette.text.primary }}>
-          {textarea('Quote')}
+          {textarea(TEXT_PLACEHOLDER)}
         </div>
       )
     }
@@ -567,7 +635,7 @@ const BlockEditor = ({
             {block.isChecked ? <i className='tabler-check text-base' /> : null}
           </button>
           <div className='flex-1'>
-            {textarea('To-do', {
+            {textarea(TEXT_PLACEHOLDER, {
               className: block.isChecked ? 'opacity-60' : '',
               style: {
                 textDecorationLine: block.isChecked ? 'line-through' : 'none',
@@ -588,7 +656,7 @@ const BlockEditor = ({
       return (
         <div className='flex gap-3'>
           <span className='pt-1 text-xl leading-none'>•</span>
-          <div className='flex-1'>{textarea('List')}</div>
+          <div className='flex-1'>{textarea(TEXT_PLACEHOLDER)}</div>
         </div>
       )
     }
@@ -597,9 +665,9 @@ const BlockEditor = ({
       return (
         <div className='flex gap-3'>
           <span className='w-6 pt-1 text-right text-base' style={{ color: theme.palette.text.secondary }}>
-            {index + 1}.
+            {numberLabel || `${index + 1}.`}
           </span>
-          <div className='flex-1'>{textarea('List')}</div>
+          <div className='flex-1'>{textarea(TEXT_PLACEHOLDER)}</div>
         </div>
       )
     }
@@ -618,7 +686,7 @@ const BlockEditor = ({
             >
               <i className={`tabler-caret-right text-lg transition-transform ${isOpen ? 'rotate-90' : ''}`} />
             </button>
-            <div className='flex-1'>{textarea('Toggle')}</div>
+            <div className='flex-1'>{textarea(TEXT_PLACEHOLDER)}</div>
           </div>
           {isOpen && block.metadata?.caption && (
             <div className='ml-8 text-sm' style={{ color: theme.palette.text.secondary }}>
@@ -691,12 +759,26 @@ const BlockEditor = ({
       )
     }
 
-    return textarea(blockType.startsWith('heading') ? 'Heading' : "Type here")
+    return textarea(TEXT_PLACEHOLDER)
+  }
+
+  const handleBlockMouseDown = event => {
+    const isSelectionShortcut = event.shiftKey || event.ctrlKey || event.metaKey
+
+    if (!isSelectionShortcut) return
+
+    event.preventDefault()
+    onSelect(event, block)
   }
 
   return (
-    <div className='group/block relative py-1'>
-      <div className='absolute -left-12 top-1 hidden justify-end gap-1 opacity-0 transition-opacity group-hover/block:opacity-100 md:flex'>
+    <div
+      className='group/block relative py-[1px]'
+      style={{ marginLeft: indentLevel ? `${indentLevel * INDENT_WIDTH_PX}px` : undefined }}
+      onMouseDownCapture={handleBlockMouseDown}
+      aria-selected={isSelected}
+    >
+      <div className='absolute -left-12 top-1/2 hidden -translate-y-1/2 justify-end gap-1 opacity-0 transition-opacity group-hover/block:opacity-100 md:flex'>
         <Tooltip title='Add block'>
           <IconButton size='small' onClick={event => onOpenInsert(event, block.blockId)}>
             <i className='tabler-plus text-base' />
@@ -708,7 +790,15 @@ const BlockEditor = ({
           </IconButton>
         </Tooltip>
       </div>
-      <Box className='min-w-0 rounded py-1' sx={{ ...colorStyle }}>
+      <Box
+        className='min-w-0 rounded py-1 transition-colors'
+        sx={{
+          ...colorStyle,
+          backgroundColor: isSelected ? theme.palette.action.selected : colorStyle.backgroundColor,
+          outline: isSelected ? `1px solid ${theme.palette.primary.main}` : 'none',
+          outlineOffset: 2
+        }}
+      >
         {content()}
       </Box>
     </div>
@@ -720,20 +810,25 @@ export default function NotionPagesView({ pageId }) {
   const router = useRouter()
   const coverInputRef = useRef(null)
   const imageInputRef = useRef(null)
+  const newBlockInputRef = useRef(null)
 
   const [title, setTitle] = useState('New page')
   const [blocks, setBlocks] = useState([])
   const [commentText, setCommentText] = useState('')
   const [showComments, setShowComments] = useState(false)
   const [newBlockText, setNewBlockText] = useState('')
+  const [newBlockFocused, setNewBlockFocused] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [emojiAnchor, setEmojiAnchor] = useState(null)
   const [insertMenu, setInsertMenu] = useState({ anchorEl: null, afterBlockId: null })
   const [actionMenu, setActionMenu] = useState({ anchorEl: null, block: null })
   const [typeFilter, setTypeFilter] = useState('')
   const [imageUploadTarget, setImageUploadTarget] = useState({ blockId: null, afterBlockId: null })
+  const [focusedBlockId, setFocusedBlockId] = useState(null)
+  const [selectedBlockIds, setSelectedBlockIds] = useState([])
+  const [lastSelectedBlockId, setLastSelectedBlockId] = useState(null)
 
-  const { data: pages = [], mutate: mutatePages } = useSWR('/api/notion-pages', fetcher)
+  const { mutate: mutatePages } = useSWR('/api/notion-pages', fetcher)
 
   const {
     data: page,
@@ -753,13 +848,59 @@ export default function NotionPagesView({ pageId }) {
     boxShadow: 'none'
   }
 
+  const selectedBlockIdSet = useMemo(() => new Set(selectedBlockIds.map(String)), [selectedBlockIds])
+
+  const numberedLabelsByBlockId = useMemo(() => {
+    const labels = {}
+    const countersByIndent = {}
+
+    blocks.forEach((block, blockIndex) => {
+      if (block.blockType !== 'numbered') return
+
+      const indentLevel = getBlockIndentLevel(block)
+      const previousBlock = blocks[blockIndex - 1]
+
+      const continuesPreviousList =
+        previousBlock?.blockType === 'numbered' && getBlockIndentLevel(previousBlock) === indentLevel
+
+      const explicitStartNumber = Number(block.metadata?.numberStart)
+
+      countersByIndent[indentLevel] = continuesPreviousList
+        ? (countersByIndent[indentLevel] || 0) + 1
+        : Number.isFinite(explicitStartNumber) && explicitStartNumber > 0
+          ? explicitStartNumber
+          : 1
+
+      labels[String(block.blockId)] = `${countersByIndent[indentLevel]}.`
+    })
+
+    return labels
+  }, [blocks])
+
   useEffect(() => {
     if (!page) return
 
     setTitle(page.pageTitle || 'Untitled')
     setBlocks((page.blocks || []).map(normalizeBlock))
     setShowComments((page.comments || []).length > 0)
+    setFocusedBlockId(null)
+    setSelectedBlockIds([])
+    setLastSelectedBlockId(null)
   }, [page])
+
+  useEffect(() => {
+    autoResize(newBlockInputRef.current)
+  }, [newBlockText])
+
+  useEffect(() => {
+    if (!newBlockFocused || !newBlockInputRef.current) return
+
+    newBlockInputRef.current.focus()
+    const cursorPosition = newBlockInputRef.current.value.length
+
+    newBlockInputRef.current.setSelectionRange(cursorPosition, cursorPosition)
+    autoResize(newBlockInputRef.current)
+  }, [newBlockFocused])
 
   const uploadFile = async file => {
     const formData = new FormData()
@@ -806,30 +947,6 @@ export default function NotionPagesView({ pageId }) {
     }
   }
 
-  const deletePage = async targetPage => {
-    if (!targetPage?.pageId) return
-    if (!confirm(`Delete page "${targetPage.pageTitle || 'Untitled'}"?`)) return
-
-    try {
-      const res = await fetch(`/api/notion-pages/${targetPage.pageId}`, {
-        method: 'DELETE'
-      })
-
-      if (!res.ok) throw new Error('Failed to delete page')
-
-      const nextPage = pages.find(item => String(item.pageId) !== String(targetPage.pageId))
-
-      await mutatePages()
-
-      if (String(targetPage.pageId) === String(pageId)) {
-        router.push(nextPage ? `/notion-pages/${nextPage.pageId}` : '/notion-pages')
-      }
-    } catch (error) {
-      console.error(error)
-      alert('Gagal menghapus page.')
-    }
-  }
-
   const savePage = async updates => {
     if (!pageId) return
 
@@ -859,6 +976,50 @@ export default function NotionPagesView({ pageId }) {
     setBlocks(currentBlocks =>
       currentBlocks.map(block => (String(block.blockId) === String(blockId) ? { ...block, ...patch } : block))
     )
+  }
+
+  const getSelectedTargetBlocks = block => {
+    const blockId = String(block?.blockId)
+
+    if (!blockId || !selectedBlockIdSet.has(blockId)) return block ? [block] : []
+
+    return blocks.filter(item => selectedBlockIdSet.has(String(item.blockId)))
+  }
+
+  const handleFocusBlock = blockId => {
+    setFocusedBlockId(String(blockId))
+    setSelectedBlockIds([])
+    setLastSelectedBlockId(null)
+  }
+
+  const handleSelectBlock = (event, block) => {
+    const blockId = String(block.blockId)
+
+    setFocusedBlockId(null)
+    setLastSelectedBlockId(blockId)
+
+    if (event.shiftKey && lastSelectedBlockId) {
+      const startIndex = blocks.findIndex(item => String(item.blockId) === String(lastSelectedBlockId))
+      const endIndex = blocks.findIndex(item => String(item.blockId) === blockId)
+
+      if (startIndex !== -1 && endIndex !== -1) {
+        const [from, to] = [Math.min(startIndex, endIndex), Math.max(startIndex, endIndex)]
+
+        setSelectedBlockIds(blocks.slice(from, to + 1).map(item => String(item.blockId)))
+
+        return
+      }
+    }
+
+    if (event.ctrlKey || event.metaKey) {
+      setSelectedBlockIds(currentIds =>
+        currentIds.includes(blockId) ? currentIds.filter(item => item !== blockId) : [...currentIds, blockId]
+      )
+
+      return
+    }
+
+    setSelectedBlockIds([blockId])
   }
 
   const saveBlock = async block => {
@@ -920,31 +1081,197 @@ export default function NotionPagesView({ pageId }) {
     }
   }
 
-  const deleteBlock = async block => {
-    if (!pageId || !block?.blockId) return
+  const createBlockAfter = async (sourceBlock, overrides = {}) => {
+    const nextBlockType = overrides.blockType || 'paragraph'
+    const payload = { ...overrides }
 
-    try {
-      const res = await fetch(`/api/notion-pages/${pageId}/blocks/${block.blockId}`, {
-        method: 'DELETE'
-      })
+    delete payload.blockType
 
-      if (!res.ok) throw new Error('Failed to delete block')
+    const createdBlock = await createBlock(nextBlockType, sourceBlock?.blockId || null, payload)
 
-      setBlocks(currentBlocks => currentBlocks.filter(item => String(item.blockId) !== String(block.blockId)))
-      mutatePages()
-    } catch (error) {
-      console.error(error)
+    if (createdBlock?.blockId) {
+      setFocusedBlockId(String(createdBlock.blockId))
+      setSelectedBlockIds([])
+      setLastSelectedBlockId(null)
     }
+
+    return createdBlock
   }
 
-  const changeBlockType = async (block, blockType) => {
-    const nextMetadata = blockType === 'table' ? normalizeTableMetadata(block.metadata) : block.metadata || {}
+  const handleAutoNumberList = async (block, numberStart = 1) => {
+    const metadata = {
+      ...(block.metadata || {}),
+      numberStart: Math.max(1, Number(numberStart) || 1)
+    }
 
-    const nextBlock = { ...block, blockType, metadata: nextMetadata }
+    const nextBlock = {
+      ...block,
+      blockType: 'numbered',
+      content: '',
+      metadata
+    }
 
-    updateLocalBlock(block.blockId, { blockType, metadata: nextMetadata })
-    setActionMenu({ anchorEl: null, block: null })
+    updateLocalBlock(block.blockId, {
+      blockType: 'numbered',
+      content: '',
+      metadata
+    })
+
     await saveBlock(nextBlock)
+  }
+
+  const handleIndentBlock = async (block, direction) => {
+    const targetBlocks = getSelectedTargetBlocks(block)
+
+    await Promise.all(
+      targetBlocks.map(async targetBlock => {
+        const indentLevel = clamp(getBlockIndentLevel(targetBlock) + direction, 0, MAX_INDENT_LEVEL)
+
+        const metadata = {
+          ...(targetBlock.metadata || {}),
+          indentLevel
+        }
+
+        updateLocalBlock(targetBlock.blockId, { metadata })
+
+        return saveBlock({ ...targetBlock, metadata })
+      })
+    )
+  }
+
+  const deleteBlocks = useCallback(async targetBlocks => {
+    if (!pageId || !targetBlocks.length) return
+
+    try {
+      await Promise.all(
+        targetBlocks.map(async block => {
+          const res = await fetch(`/api/notion-pages/${pageId}/blocks/${block.blockId}`, {
+            method: 'DELETE'
+          })
+
+          if (!res.ok) throw new Error('Failed to delete block')
+        })
+      )
+
+      const deletedIds = new Set(targetBlocks.map(item => String(item.blockId)))
+
+      setBlocks(currentBlocks => currentBlocks.filter(item => !deletedIds.has(String(item.blockId))))
+      setSelectedBlockIds([])
+      setLastSelectedBlockId(null)
+      mutatePages()
+
+      return true
+    } catch (error) {
+      console.error(error)
+
+      return false
+    }
+  }, [mutatePages, pageId])
+
+  const handleDeleteTargets = async targetBlocks => {
+    if (!targetBlocks?.length) return false
+
+    const targetIds = new Set(targetBlocks.map(item => String(item.blockId)))
+
+    const targetIndices = blocks
+      .map((block, index) => (targetIds.has(String(block.blockId)) ? index : -1))
+      .filter(index => index !== -1)
+
+    const firstTargetIndex = targetIndices[0]
+    const lastTargetIndex = targetIndices[targetIndices.length - 1]
+    const previousBlock = firstTargetIndex > 0 ? blocks.slice(0, firstTargetIndex).reverse().find(block => !targetIds.has(String(block.blockId))) : null
+    const nextBlock = blocks.slice(lastTargetIndex + 1).find(block => !targetIds.has(String(block.blockId)))
+    const deleted = await deleteBlocks(targetBlocks)
+
+    if (!deleted) return false
+
+    setSelectedBlockIds([])
+    setLastSelectedBlockId(null)
+
+    if (previousBlock) {
+      setFocusedBlockId(String(previousBlock.blockId))
+    } else if (nextBlock) {
+      setFocusedBlockId(String(nextBlock.blockId))
+    } else {
+      setFocusedBlockId(null)
+      setNewBlockFocused(true)
+    }
+
+    return true
+  }
+
+  const handleDeleteCurrentBlock = async block => {
+    await handleDeleteTargets([block])
+  }
+
+  const handleDeleteSelectedBlocks = async block => {
+    const targetBlocks = getSelectedTargetBlocks(block)
+
+    await handleDeleteTargets(targetBlocks.length ? targetBlocks : [block])
+  }
+
+  const handleMergeWithPreviousBlock = async block => {
+    if (!block?.blockId) return false
+
+    const currentIndex = blocks.findIndex(item => String(item.blockId) === String(block.blockId))
+    const previousBlock = currentIndex > 0 ? blocks[currentIndex - 1] : null
+
+    if (!previousBlock) return false
+
+    const mergedContent = `${previousBlock.content || ''}${block.content || ''}`
+
+    updateLocalBlock(previousBlock.blockId, { content: mergedContent })
+
+    const saved = await saveBlock({ ...previousBlock, content: mergedContent })
+
+    if (!saved) return false
+
+    await handleDeleteTargets([block])
+
+    return true
+  }
+
+  const deleteBlock = async block => {
+    await handleDeleteTargets(getSelectedTargetBlocks(block))
+  }
+
+  useEffect(() => {
+    const handleSelectedBlocksKeyDown = event => {
+      if (!selectedBlockIds.length || !['Backspace', 'Delete'].includes(event.key)) return
+
+      const activeElement = document.activeElement
+
+      const isTyping =
+        activeElement?.tagName === 'TEXTAREA' ||
+        activeElement?.tagName === 'INPUT' ||
+        activeElement?.isContentEditable
+
+      if (isTyping) return
+
+      event.preventDefault()
+      deleteBlocks(blocks.filter(block => selectedBlockIdSet.has(String(block.blockId))))
+    }
+
+    window.addEventListener('keydown', handleSelectedBlocksKeyDown)
+
+    return () => window.removeEventListener('keydown', handleSelectedBlocksKeyDown)
+  }, [blocks, deleteBlocks, selectedBlockIdSet, selectedBlockIds.length])
+
+  const changeBlockType = async (block, blockType) => {
+    const targetBlocks = getSelectedTargetBlocks(block)
+
+    setActionMenu({ anchorEl: null, block: null })
+
+    await Promise.all(
+      targetBlocks.map(async targetBlock => {
+        const nextMetadata = blockType === 'table' ? normalizeTableMetadata(targetBlock.metadata) : targetBlock.metadata || {}
+        const nextBlock = { ...targetBlock, blockType, metadata: nextMetadata }
+
+        updateLocalBlock(targetBlock.blockId, { blockType, metadata: nextMetadata })
+
+        return saveBlock(nextBlock)
+      })
+    )
   }
 
   const duplicateBlock = async block => {
@@ -968,8 +1295,15 @@ export default function NotionPagesView({ pageId }) {
   }
 
   const updateBlockColor = async (block, blockColor) => {
-    updateLocalBlock(block.blockId, { blockColor })
-    await saveBlock({ ...block, blockColor })
+    const targetBlocks = getSelectedTargetBlocks(block)
+
+    await Promise.all(
+      targetBlocks.map(async targetBlock => {
+        updateLocalBlock(targetBlock.blockId, { blockColor })
+
+        return saveBlock({ ...targetBlock, blockColor })
+      })
+    )
   }
 
   const toggleChecked = async block => {
@@ -1060,10 +1394,45 @@ export default function NotionPagesView({ pageId }) {
   }
 
   const handleNewBlockKeyDown = async event => {
-    if (event.key === 'Enter' && !event.shiftKey && newBlockText.trim()) {
+    if (
+      event.key === ' ' &&
+      !event.shiftKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey
+    ) {
+      const selectionStart = event.currentTarget.selectionStart ?? newBlockText.length
+      const selectionEnd = event.currentTarget.selectionEnd ?? selectionStart
+      const beforeCursor = newBlockText.slice(0, selectionStart)
+      const afterCursor = newBlockText.slice(selectionEnd)
+      const numberMatch = beforeCursor.match(/^\s*(\d+)\.$/)
+
+      if (numberMatch && !afterCursor.trim()) {
+        event.preventDefault()
+
+        const createdBlock = await createBlock('numbered', blocks.at(-1)?.blockId || null, {
+          content: '',
+          metadata: { numberStart: Math.max(1, Number(numberMatch[1]) || 1) }
+        })
+
+        setNewBlockText('')
+
+        if (createdBlock?.blockId) setFocusedBlockId(String(createdBlock.blockId))
+
+        return
+      }
+    }
+
+    if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      await createBlock('paragraph', blocks.at(-1)?.blockId || null, { content: newBlockText })
+
+      const createdBlock = await createBlock('paragraph', blocks.at(-1)?.blockId || null, { content: newBlockText })
+
       setNewBlockText('')
+
+      if (!newBlockText.trim() && createdBlock?.blockId) {
+        setFocusedBlockId(String(createdBlock.blockId))
+      }
     }
   }
 
@@ -1078,6 +1447,12 @@ export default function NotionPagesView({ pageId }) {
 
   const openActionMenu = (event, block) => {
     setTypeFilter('')
+
+    if (!selectedBlockIdSet.has(String(block.blockId))) {
+      setSelectedBlockIds([])
+      setLastSelectedBlockId(null)
+    }
+
     setActionMenu({ anchorEl: event.currentTarget, block })
   }
 
@@ -1086,11 +1461,16 @@ export default function NotionPagesView({ pageId }) {
   }
 
   const selectInsertType = async blockType => {
-    await createBlock(
+    const createdBlock = await createBlock(
       blockType,
       insertMenu.afterBlockId,
       blockType === 'table' ? { metadata: createDefaultTableMetadata() } : {}
     )
+
+    if (createdBlock?.blockId && !['table', 'image'].includes(blockType)) {
+      setFocusedBlockId(String(createdBlock.blockId))
+    }
+
     closeInsertMenu()
   }
 
@@ -1128,8 +1508,13 @@ export default function NotionPagesView({ pageId }) {
           <div>
             <i className='tabler-file-plus mb-4 block text-5xl' style={{ color: theme.palette.text.secondary }} />
             <h2 className='mb-2 text-2xl font-semibold'>New page</h2>
-            <Button variant='contained' startIcon={<i className='tabler-plus' />} onClick={createPage}>
-              Add New Page
+            <Button
+              variant='contained'
+              startIcon={<i className={isCreating ? 'tabler-loader-2 animate-spin' : 'tabler-plus'} />}
+              onClick={createPage}
+              disabled={isCreating}
+            >
+              {isCreating ? 'Creating...' : 'Add New Page'}
             </Button>
           </div>
         </div>
@@ -1164,16 +1549,9 @@ export default function NotionPagesView({ pageId }) {
           <div className='flex min-w-0 items-center gap-2'>
             <span className='text-xl'>{page.pageIcon || <i className='tabler-file text-xl' />}</span>
             <span className='truncate font-semibold'>{title || 'Untitled'}</span>
-            <span className='hidden items-center gap-1 text-sm md:flex' style={{ color: theme.palette.text.secondary }}>
-              <i className='tabler-lock text-base' />
-              Private
-            </span>
           </div>
 
           <div className='flex items-center gap-1'>
-            <Button variant='outlined' size='small' startIcon={<i className='tabler-lock' />}>
-              Share
-            </Button>
             <Tooltip title='Copy link'>
               <IconButton size='small' onClick={copyPageLink}>
                 <i className='tabler-link text-xl' />
@@ -1379,11 +1757,23 @@ export default function NotionPagesView({ pageId }) {
                   key={block.blockId}
                   block={block}
                   index={index}
+                  numberLabel={numberedLabelsByBlockId[String(block.blockId)]}
+                  isSelected={selectedBlockIdSet.has(String(block.blockId))}
+                  selectedBlockCount={selectedBlockIds.length}
+                  shouldFocus={String(focusedBlockId) === String(block.blockId)}
                   onChange={updateLocalBlock}
                   onSave={saveBlock}
                   onOpenInsert={openInsertMenu}
                   onOpenAction={openActionMenu}
-                  onCreateAfter={blockItem => createBlock('paragraph', blockItem.blockId)}
+                  onCreateAfter={createBlockAfter}
+                  onAutoNumberList={handleAutoNumberList}
+                  onIndent={handleIndentBlock}
+                  onSelect={handleSelectBlock}
+                  onFocusBlock={handleFocusBlock}
+                  onFocusConsumed={() => setFocusedBlockId(null)}
+                  onDeleteCurrent={handleDeleteCurrentBlock}
+                  onDeleteSelected={handleDeleteSelectedBlocks}
+                  onMergeWithPrevious={handleMergeWithPreviousBlock}
                   onToggleChecked={toggleChecked}
                   onUpdateMetadata={updateBlockMetadata}
                   onUploadImage={blockItem => {
@@ -1393,29 +1783,38 @@ export default function NotionPagesView({ pageId }) {
                 />
               ))}
 
-              <div className='group/new relative py-1'>
-                <div className='absolute -left-12 top-1 hidden justify-end gap-1 opacity-0 transition-opacity group-hover/new:opacity-100 md:flex'>
+              <div className='group/new relative py-[1px]'>
+                <div className='absolute -left-12 top-1/2 hidden -translate-y-1/2 justify-end gap-1 opacity-0 transition-opacity group-hover/new:opacity-100 md:flex'>
                   <Tooltip title='Add block'>
                     <IconButton size='small' onClick={event => openInsertMenu(event, blocks.at(-1)?.blockId || null)}>
                       <i className='tabler-plus text-base' />
                     </IconButton>
                   </Tooltip>
-                  <i className='tabler-grip-vertical pt-2 text-base' style={{ color: theme.palette.text.disabled }} />
+                  <i className='tabler-grip-vertical text-base' style={{ color: theme.palette.text.disabled }} />
                 </div>
                 <textarea
+                  ref={newBlockInputRef}
                   rows={1}
                   value={newBlockText}
                   onChange={event => {
                     autoResize(event.currentTarget)
                     setNewBlockText(event.target.value)
                   }}
+                  onFocus={() => {
+                    setNewBlockFocused(true)
+                    setSelectedBlockIds([])
+                    setLastSelectedBlockId(null)
+                  }}
                   onBlur={async () => {
+                    setNewBlockFocused(false)
+
                     if (!newBlockText.trim()) return
+
                     await createBlock('paragraph', blocks.at(-1)?.blockId || null, { content: newBlockText })
                     setNewBlockText('')
                   }}
                   onKeyDown={handleNewBlockKeyDown}
-                  placeholder="Type here"
+                  placeholder={newBlockFocused ? TEXT_PLACEHOLDER : ''}
                   className='min-h-10 w-full resize-none bg-transparent py-2 text-lg outline-none'
                   style={{ color: theme.palette.text.primary }}
                 />
@@ -1432,14 +1831,6 @@ export default function NotionPagesView({ pageId }) {
       className='flex h-[calc(100vh-136px)] min-h-[720px] overflow-hidden rounded-md border md:min-h-[680px]'
       style={{ borderColor: theme.palette.divider, backgroundColor: theme.palette.background.default }}
     >
-      <FeatureSidebar
-        pages={pages}
-        activePageId={pageId}
-        onCreatePage={createPage}
-        onDeletePage={deletePage}
-        isCreating={isCreating}
-      />
-
       <section className='min-w-0 flex-1'>{pageContent()}</section>
 
       <input ref={coverInputRef} type='file' accept='image/*' className='hidden' onChange={handleCoverUpload} />
@@ -1487,7 +1878,13 @@ export default function NotionPagesView({ pageId }) {
         />
       </Menu>
 
-      <Menu anchorEl={actionMenu.anchorEl} open={Boolean(actionMenu.anchorEl)} onClose={closeActionMenu}>
+      <Menu
+        anchorEl={actionMenu.anchorEl}
+        open={Boolean(actionMenu.anchorEl)}
+        onClose={closeActionMenu}
+        anchorOrigin={{ vertical: 'center', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'center', horizontal: 'right' }}
+      >
         <div className='w-[340px] max-w-[calc(100vw-32px)] py-2'>
           <div className='px-3 py-2 text-xs font-semibold' style={{ color: theme.palette.text.secondary }}>
             Turn into
